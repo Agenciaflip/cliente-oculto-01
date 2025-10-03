@@ -236,10 +236,12 @@ Adapte a pergunta de forma natural considerando TUDO que o cliente disse. Seja d
         }
       }
 
-      // Enviar via Evolution
+      // Enviar via Evolution (remove "Cliente Oculto:" prefix for WhatsApp)
+      const cleanMessage = adaptedQuestion.replace(/^Cliente Oculto:\s*/i, '');
+      
       const evolutionPayload = {
         number: analysis.target_phone,
-        text: adaptedQuestion
+        text: cleanMessage
       };
 
       const evolutionResponse = await fetch(
