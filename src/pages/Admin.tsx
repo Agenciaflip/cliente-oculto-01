@@ -1,264 +1,299 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { useAdminCheck } from "@/hooks/useAdminCheck";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Users, Activity, MessageSquare } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
-import { format } from "date-fns";
+import { Loader2, Users, MessageSquare, ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
-interface Profile {
+interface UserData {
   id: string;
+  email: string;
   subscription_tier: string;
   credits_remaining: number;
+  analyses_count: number;
+  last_analysis?: string;
 }
 
-interface Analysis {
+interface AnalysisData {
   id: string;
-  user_id: string;
-  status: string;
   target_phone: string;
   company_name: string;
+  status: string;
+  persona: string;
   created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  last_message_at: string | null;
-}
-
-interface MessageCount {
-  analysis_id: string;
-  count: number;
+  messages_count: number;
 }
 
 const Admin = () => {
-  const { loading: adminLoading } = useAdminCheck();
   const navigate = useNavigate();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [analyses, setAnalyses] = useState<Analysis[]>([]);
-  const [messageCounts, setMessageCounts] = useState<Record<string, number>>({});
+  const { isAdmin, loading: adminLoading } = useIsAdmin();
+  const [users, setUsers] = useState<UserData[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [analyses, setAnalyses] = useState<AnalysisData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!adminLoading) {
-      loadData();
+    if (!adminLoading && !isAdmin) {
+      toast.error("Acesso negado");
+      navigate("/dashboard");
     }
-  }, [adminLoading]);
+  }, [isAdmin, adminLoading, navigate]);
 
-  const loadData = async () => {
+  useEffect(() => {
+    if (isAdmin) {
+      loadUsers();
+    }
+  }, [isAdmin]);
+
+  const loadUsers = async () => {
     try {
-      setLoading(true);
-
-      // Carregar perfis
-      const { data: profilesData, error: profilesError } = await supabase
+      const { data: profiles, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, subscription_tier, credits_remaining')
         .order('created_at', { ascending: false });
 
-      if (profilesError) throw profilesError;
-      setProfiles(profilesData || []);
+      if (error) throw error;
 
-      // Carregar análises
-      const { data: analysesData, error: analysesError } = await supabase
-        .from('analysis_requests')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const usersData: UserData[] = [];
+      
+      for (const profile of profiles || []) {
+        // Get analyses count
+        const { count } = await supabase
+          .from('analysis_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', profile.id);
 
-      if (analysesError) throw analysesError;
-      setAnalyses(analysesData || []);
+        // Get last analysis
+        const { data: lastAnalysis } = await supabase
+          .from('analysis_requests')
+          .select('created_at')
+          .eq('user_id', profile.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      // Carregar contagem de mensagens por análise
-      const { data: messagesData, error: messagesError } = await supabase
-        .from('conversation_messages')
-        .select('analysis_id');
+        usersData.push({
+          id: profile.id,
+          email: 'Usuário ' + profile.id.substring(0, 8),
+          subscription_tier: profile.subscription_tier,
+          credits_remaining: profile.credits_remaining,
+          analyses_count: count || 0,
+          last_analysis: lastAnalysis?.created_at,
+        });
+      }
 
-      if (messagesError) throw messagesError;
-
-      const counts: Record<string, number> = {};
-      messagesData?.forEach((msg) => {
-        counts[msg.analysis_id] = (counts[msg.analysis_id] || 0) + 1;
-      });
-      setMessageCounts(counts);
-
+      setUsers(usersData);
     } catch (error) {
-      console.error('Erro ao carregar dados:', error);
+      console.error('Error loading users:', error);
+      toast.error("Erro ao carregar usuários");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadUserAnalyses = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('analysis_requests')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const analysesData: AnalysisData[] = [];
+      
+      for (const analysis of data || []) {
+        const { count } = await supabase
+          .from('conversation_messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('analysis_id', analysis.id);
+
+        analysesData.push({
+          id: analysis.id,
+          target_phone: analysis.target_phone,
+          company_name: analysis.company_name || 'N/A',
+          status: analysis.status,
+          persona: analysis.persona,
+          created_at: analysis.created_at,
+          messages_count: count || 0,
+        });
+      }
+
+      setAnalyses(analysesData);
+      setSelectedUserId(userId);
+    } catch (error) {
+      console.error('Error loading analyses:', error);
+      toast.error("Erro ao carregar análises");
     }
   };
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
       pending: "secondary",
-      processing: "outline",
+      processing: "default",
       chatting: "default",
-      completed: "default",
-      error: "destructive",
+      completed: "outline",
+      failed: "destructive",
+      timeout: "destructive",
     };
-    
+
+    const labels: Record<string, string> = {
+      pending: "Pendente",
+      processing: "Processando",
+      chatting: "Conversando",
+      completed: "Concluída",
+      failed: "Falhou",
+      timeout: "Timeout",
+    };
+
     return (
-      <Badge variant={variants[status] || "outline"}>
-        {status}
+      <Badge variant={variants[status] || "default"}>
+        {labels[status] || status}
       </Badge>
     );
   };
 
-  const getAnalysisCountForUser = (userId: string) => {
-    return analyses.filter(a => a.user_id === userId).length;
-  };
-
   if (adminLoading || loading) {
     return (
-      <div className="min-h-screen bg-background p-8">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <Skeleton className="h-12 w-64" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Skeleton className="h-32" />
-            <Skeleton className="h-32" />
-            <Skeleton className="h-32" />
-          </div>
-          <Skeleton className="h-96" />
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin" />
       </div>
     );
   }
 
-  const totalUsers = profiles.length;
-  const totalAnalyses = analyses.length;
-  const activeAnalyses = analyses.filter(a => a.status === 'chatting' || a.status === 'processing').length;
+  if (!isAdmin) {
+    return null;
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b">
-        <div className="max-w-7xl mx-auto px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold">Painel Administrativo</h1>
-              <p className="text-muted-foreground mt-1">Gerencie usuários e análises</p>
-            </div>
-            <Button variant="outline" onClick={() => navigate('/dashboard')}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Voltar ao Dashboard
-            </Button>
+    <div className="min-h-screen bg-background p-8">
+      <div className="max-w-7xl mx-auto space-y-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold">Painel Administrativo</h1>
+            <p className="text-muted-foreground mt-2">Gerencie usuários e análises</p>
           </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto p-8 space-y-8">
-        {/* Cards de resumo */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total de Usuários</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalUsers}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total de Análises</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalAnalyses}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Análises Ativas</CardTitle>
-              <MessageSquare className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{activeAnalyses}</div>
-            </CardContent>
-          </Card>
+          <Button variant="outline" onClick={() => navigate("/dashboard")}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Voltar ao Dashboard
+          </Button>
         </div>
 
-        {/* Tabela de Usuários */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Usuários</CardTitle>
-            <CardDescription>Lista de todos os usuários cadastrados</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID do Usuário</TableHead>
-                  <TableHead>Plano</TableHead>
-                  <TableHead>Créditos</TableHead>
-                  <TableHead>Análises</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {profiles.map((profile) => (
-                  <TableRow key={profile.id}>
-                    <TableCell className="font-mono text-xs">{profile.id.slice(0, 8)}...</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{profile.subscription_tier}</Badge>
-                    </TableCell>
-                    <TableCell>{profile.credits_remaining}</TableCell>
-                    <TableCell>{getAnalysisCountForUser(profile.id)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <div className="grid gap-6 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Usuários ({users.length})
+              </CardTitle>
+              <CardDescription>Lista de todos os usuários da plataforma</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Plano</TableHead>
+                      <TableHead>Créditos</TableHead>
+                      <TableHead>Análises</TableHead>
+                      <TableHead>Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell className="font-medium font-mono text-xs">
+                          {user.id.substring(0, 8)}...
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{user.subscription_tier}</Badge>
+                        </TableCell>
+                        <TableCell>{user.credits_remaining}</TableCell>
+                        <TableCell>{user.analyses_count}</TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => loadUserAnalyses(user.id)}
+                          >
+                            Ver Análises
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* Tabela de Análises */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Análises Recentes</CardTitle>
-            <CardDescription>Todas as análises do sistema</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Telefone</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Mensagens</TableHead>
-                  <TableHead>Criado em</TableHead>
-                  <TableHead>Última mensagem</TableHead>
-                  <TableHead>Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {analyses.map((analysis) => (
-                  <TableRow key={analysis.id}>
-                    <TableCell className="font-medium">{analysis.company_name || 'N/A'}</TableCell>
-                    <TableCell>{analysis.target_phone}</TableCell>
-                    <TableCell>{getStatusBadge(analysis.status)}</TableCell>
-                    <TableCell>{messageCounts[analysis.id] || 0}</TableCell>
-                    <TableCell>{format(new Date(analysis.created_at), 'dd/MM/yyyy HH:mm')}</TableCell>
-                    <TableCell>
-                      {analysis.last_message_at 
-                        ? format(new Date(analysis.last_message_at), 'dd/MM/yyyy HH:mm')
-                        : '-'}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => navigate(`/dashboard/analysis/${analysis.id}`)}
-                      >
-                        Ver Detalhes
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5" />
+                Análises do Usuário
+              </CardTitle>
+              <CardDescription>
+                {selectedUserId 
+                  ? `Análises selecionadas (${analyses.length})`
+                  : "Selecione um usuário para ver suas análises"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {selectedUserId ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Telefone</TableHead>
+                        <TableHead>Empresa</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Msgs</TableHead>
+                        <TableHead>Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {analyses.map((analysis) => (
+                        <TableRow key={analysis.id}>
+                          <TableCell className="font-medium">{analysis.target_phone}</TableCell>
+                          <TableCell>{analysis.company_name}</TableCell>
+                          <TableCell>{getStatusBadge(analysis.status)}</TableCell>
+                          <TableCell>{analysis.messages_count}</TableCell>
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => navigate(`/dashboard/analysis/${analysis.id}`)}
+                            >
+                              Ver Detalhes
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  Selecione um usuário para visualizar suas análises
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
