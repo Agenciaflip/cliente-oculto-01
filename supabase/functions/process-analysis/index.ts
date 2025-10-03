@@ -192,10 +192,56 @@ IMPORTANTE:
     });
 
     const strategyData = await strategyResponse.json();
-    const questionsStrategy = JSON.parse(
-      strategyData.choices[0].message.tool_calls[0].function.arguments
-    );
 
+    // Robust parsing with tool-call fallback and content parsing
+    let questionsStrategy: any | null = null;
+    try {
+      const toolCalls = strategyData?.choices?.[0]?.message?.tool_calls;
+      if (toolCalls && toolCalls[0]?.function?.arguments) {
+        questionsStrategy = JSON.parse(toolCalls[0].function.arguments);
+      } else {
+        const content = strategyData?.choices?.[0]?.message?.content;
+        if (content) {
+          try {
+            questionsStrategy = JSON.parse(content);
+          } catch {
+            // attempt to extract numbered lines into a minimal strategy
+            const lines = String(content).split('\n').map((l: string) => l.trim()).filter(Boolean);
+            const qs = lines
+              .filter((l: string) => /^\d+[\).\-]\s*/.test(l) || l.length > 0)
+              .slice(0, config.numQuestions)
+              .map((l: string, idx: number) => ({
+                order: idx + 1,
+                question: l.replace(/^\d+[\).\-]\s*/, ''),
+                expected_info: 'informações relevantes sobre serviços e atendimento'
+              }));
+            if (qs.length > 0) questionsStrategy = { questions: qs };
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse questions strategy:', e);
+    }
+
+    if (!questionsStrategy?.questions?.length) {
+      // create a minimal default strategy to avoid blocking
+      questionsStrategy = {
+        questions: Array.from({ length: config.numQuestions }, (_, i) => {
+          const base = [
+            'Olá! Tudo bem? Vi o contato e gostaria de entender melhor os serviços que vocês oferecem.',
+            'Poderia me explicar como funciona o atendimento e os prazos?',
+            'Vocês poderiam me passar uma ideia de valores ou faixas de preço?',
+            'Quais diferenciais vocês têm em relação a outras opções?',
+            'Como posso seguir com um orçamento/atendimento?'
+          ];
+          return {
+            order: i + 1,
+            question: base[i] || `Pergunta ${i + 1}: poderia me detalhar um pouco mais?`,
+            expected_info: 'detalhes sobre serviços, prazos e preços'
+          };
+        })
+      };
+    }
     // Salvar estratégia no banco
     await supabase
       .from('analysis_requests')
@@ -206,27 +252,52 @@ IMPORTANTE:
     console.log('Sending first message via Evolution API...');
 
     const firstQuestion = questionsStrategy.questions[0];
-    const evolutionPayload = {
-      number: pendingAnalysis.target_phone.replace(/\D/g, ''),
-      text: firstQuestion.question
-    };
 
-    const evolutionResponse = await fetch(
-      `${evolutionUrl}/message/sendText/${evolutionInstance}`,
-      {
-        method: 'POST',
-        headers: {
-          'apikey': evolutionKey!,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(evolutionPayload),
+    // Normalize BR phone into candidates: with and without extra '9'
+    const rawDigits = String(pendingAnalysis.target_phone || '').replace(/\D/g, '');
+    const candidates = new Set<string>();
+    if (rawDigits) {
+      candidates.add(rawDigits);
+      if (rawDigits.startsWith('55')) {
+        if (rawDigits.length === 12) {
+          // e.g., 55 + AA + 8-digit -> try adding '9' after country+area
+          candidates.add(rawDigits.slice(0, 4) + '9' + rawDigits.slice(4));
+        }
+        if (rawDigits.length === 13) {
+          // e.g., 55 + AA + 9 + 8-digit -> try removing the '9'
+          candidates.add(rawDigits.slice(0, 4) + rawDigits.slice(5));
+        }
       }
-    );
-
-    if (!evolutionResponse.ok) {
-      throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
     }
 
+    let sendOk = false;
+    let usedNumber = rawDigits;
+    let lastErr = '';
+    for (const num of candidates) {
+      const payload = { number: num, text: firstQuestion.question };
+      const resp = await fetch(
+        `${evolutionUrl}/message/sendText/${evolutionInstance}`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': evolutionKey!,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (resp.ok) {
+        sendOk = true;
+        usedNumber = num;
+        break;
+      }
+      lastErr = await resp.text();
+      console.warn('Evolution send failed for', num, lastErr);
+    }
+
+    if (!sendOk) {
+      throw new Error(`Evolution API error: ${lastErr || 'unknown error'}`);
+    }
     // Salvar mensagem inicial
     await supabase.from('conversation_messages').insert({
       analysis_id: pendingAnalysis.id,
