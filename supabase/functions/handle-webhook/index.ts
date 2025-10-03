@@ -92,12 +92,15 @@ serve(async (req) => {
 
     console.log(`Found active analysis: ${activeAnalysis.id}`);
 
-    // Salvar mensagem do usuário
+    // Salvar mensagem do usuário com flag processed: false
     await supabase.from('conversation_messages').insert({
       analysis_id: activeAnalysis.id,
       role: 'user',
       content: messageText,
-      metadata: { timestamp: new Date().toISOString() }
+      metadata: { 
+        processed: false,
+        timestamp: new Date().toISOString() 
+      }
     });
 
     // Atualizar timestamp da última mensagem
@@ -106,134 +109,12 @@ serve(async (req) => {
       .update({ last_message_at: new Date().toISOString() })
       .eq('id', activeAnalysis.id);
 
-    // Buscar histórico de mensagens
-    const { data: messages } = await supabase
-      .from('conversation_messages')
-      .select('*')
-      .eq('analysis_id', activeAnalysis.id)
-      .order('created_at', { ascending: true });
-
-    // Buscar estratégia de perguntas
-    const questionsStrategy = activeAnalysis.questions_strategy;
-    const currentQuestionIndex = messages?.filter(m => m.role === 'ai').length || 0;
-    const totalQuestions = questionsStrategy?.questions?.length || 0;
-
-    console.log(`Current question: ${currentQuestionIndex}/${totalQuestions}`);
-
-    // Verificar se ainda há perguntas
-    if (currentQuestionIndex >= totalQuestions) {
-      console.log('All questions answered, generating metrics...');
-      
-      // Atualizar status para processing
-      await supabase
-        .from('analysis_requests')
-        .update({ status: 'processing' })
-        .eq('id', activeAnalysis.id);
-
-      // Chamar geração de métricas
-      await supabase.functions.invoke('generate-metrics', {
-        body: { analysis_id: activeAnalysis.id }
-      });
-
-      return new Response(
-        JSON.stringify({ message: 'Conversation completed' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Analisar resposta e decidir próxima pergunta com IA
-    const nextQuestion = questionsStrategy.questions[currentQuestionIndex];
-    
-    // Usar IA para adaptar a próxima pergunta baseado no contexto
-    const conversationHistory = messages?.map(m => 
-      `${m.role === 'ai' ? 'Cliente Oculto' : 'Empresa'}: ${m.content}`
-    ).join('\n');
-
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${lovableKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          {
-            role: 'system',
-            content: `Você é um cliente oculto avaliando o atendimento de uma empresa. 
-Mantenha naturalidade na conversa e adapte a próxima pergunta ao contexto da resposta anterior.`
-          },
-          {
-            role: 'user',
-            content: `CONVERSA ATÉ AGORA:
-${conversationHistory}
-
-PRÓXIMA PERGUNTA PLANEJADA:
-${nextQuestion.question}
-
-OBJETIVO: ${nextQuestion.expected_info}
-
-Adapte a próxima pergunta para que ela flua naturalmente após a resposta que acabamos de receber. 
-Se a resposta já cobriu parte do objetivo, ajuste a pergunta. Mantenha o tom ${activeAnalysis.persona}.
-Seja direto e natural, sem rodeios.`
-          }
-        ],
-        max_completion_tokens: 200,
-      }),
-    });
-
-    const aiData = await aiResponse.json();
-    const adaptedQuestion = aiData.choices[0].message.content.trim();
-
-    console.log(`Adapted question: ${adaptedQuestion}`);
-
-    // Enviar próxima pergunta via Evolution
-    const evolutionPayload = {
-      number: phoneNumber,
-      text: adaptedQuestion
-    };
-
-    const evolutionResponse = await fetch(
-      `${evolutionUrl}/message/sendText/${evolutionInstance}`,
-      {
-        method: 'POST',
-        headers: {
-          'apikey': evolutionKey!,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(evolutionPayload),
-      }
-    );
-
-    if (!evolutionResponse.ok) {
-      throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
-    }
-
-    // Salvar mensagem da AI
-    await supabase.from('conversation_messages').insert({
-      analysis_id: activeAnalysis.id,
-      role: 'ai',
-      content: adaptedQuestion,
-      metadata: { 
-        order: currentQuestionIndex + 1,
-        expected_info: nextQuestion.expected_info,
-        original_question: nextQuestion.question
-      }
-    });
-
-    // Atualizar timestamp
-    await supabase
-      .from('analysis_requests')
-      .update({ last_message_at: new Date().toISOString() })
-      .eq('id', activeAnalysis.id);
-
-    console.log('Next question sent successfully');
+    console.log(`💾 Mensagem salva com processed: false - será processada pelo monitor`);
 
     return new Response(
       JSON.stringify({ 
         success: true,
-        next_question: adaptedQuestion,
-        progress: `${currentQuestionIndex + 1}/${totalQuestions}`
+        message: 'Message saved, will be processed by monitor'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
