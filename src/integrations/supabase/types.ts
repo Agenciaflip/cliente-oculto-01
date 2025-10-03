@@ -24,8 +24,10 @@ export type Database = {
           last_message_at: string | null
           metrics: Json | null
           persona: Database["public"]["Enums"]["persona_type"]
+          processing_started_at: string | null
           questions_strategy: Json | null
           research_data: Json | null
+          retry_count: number | null
           started_at: string | null
           status: Database["public"]["Enums"]["analysis_status"]
           target_phone: string
@@ -41,8 +43,10 @@ export type Database = {
           last_message_at?: string | null
           metrics?: Json | null
           persona?: Database["public"]["Enums"]["persona_type"]
+          processing_started_at?: string | null
           questions_strategy?: Json | null
           research_data?: Json | null
+          retry_count?: number | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
           target_phone: string
@@ -58,8 +62,10 @@ export type Database = {
           last_message_at?: string | null
           metrics?: Json | null
           persona?: Database["public"]["Enums"]["persona_type"]
+          processing_started_at?: string | null
           questions_strategy?: Json | null
           research_data?: Json | null
+          retry_count?: number | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
           target_phone?: string
@@ -226,6 +232,7 @@ export type Database = {
         | "analyzing"
         | "completed"
         | "failed"
+        | "processing"
       persona_type: "interested" | "price_hunter" | "competitor" | "custom"
       subscription_tier: "free" | "basic" | "premium"
     }
@@ -362,6 +369,7 @@ export const Constants = {
         "analyzing",
         "completed",
         "failed",
+        "processing",
       ],
       persona_type: ["interested", "price_hunter", "competitor", "custom"],
       subscription_tier: ["free", "basic", "premium"],

@@ -46,16 +46,18 @@ serve(async (req) => {
       );
     }
 
-    // Processar análises pendentes
-    const { data: pendingAnalysis } = await supabase
+    // PROCESSAMENTO PARALELO: pegar até 5 análises pendentes
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    
+    const { data: pendingAnalyses } = await supabase
       .from('analysis_requests')
       .select('*')
       .eq('status', 'pending')
+      .or(`processing_started_at.is.null,processing_started_at.lt.${twoMinutesAgo}`)
       .order('created_at', { ascending: true })
-      .limit(1)
-      .single();
+      .limit(5);
 
-    if (!pendingAnalysis) {
+    if (!pendingAnalyses || pendingAnalyses.length === 0) {
       console.log('No pending analyses found');
       return new Response(
         JSON.stringify({ message: 'No pending analyses' }),
@@ -63,7 +65,67 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Processing analysis ${pendingAnalysis.id}`);
+    console.log(`📊 Processando ${pendingAnalyses.length} análises simultâneas`);
+    console.log(`📋 IDs: ${pendingAnalyses.map(a => a.id).join(', ')}`);
+    console.log(`⏱️ Iniciado às ${new Date().toISOString()}`);
+
+    // Marcar todas como 'processing' com lock otimista
+    const analysisIds = pendingAnalyses.map(a => a.id);
+    await supabase
+      .from('analysis_requests')
+      .update({ 
+        status: 'processing',
+        processing_started_at: new Date().toISOString()
+      })
+      .in('id', analysisIds);
+
+    // Processar cada análise em paralelo
+    const results = await Promise.allSettled(
+      pendingAnalyses.map(analysis => processAnalysis(analysis, supabase, perplexityKey, lovableKey, evolutionUrl, evolutionKey, evolutionInstance))
+    );
+
+    const successful = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+
+    console.log(`✅ Concluído: ${successful} sucesso, ${failed} falhas`);
+
+    return new Response(
+      JSON.stringify({ 
+        success: true,
+        processed: pendingAnalyses.length,
+        successful,
+        failed,
+        results: results.map((r, i) => ({
+          id: pendingAnalyses[i].id,
+          status: r.status,
+          ...(r.status === 'rejected' ? { error: r.reason } : {})
+        }))
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('Error in process-analysis:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return new Response(
+      JSON.stringify({ error: errorMessage }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
+
+// FUNÇÃO AUXILIAR PARA PROCESSAR CADA ANÁLISE
+async function processAnalysis(
+  pendingAnalysis: any,
+  supabase: any,
+  perplexityKey: string | undefined,
+  lovableKey: string | undefined,
+  evolutionUrl: string | undefined,
+  evolutionKey: string | undefined,
+  evolutionInstance: string | undefined
+) {
+  try {
+    console.log(`🔄 [${pendingAnalysis.id}] Iniciando processamento para ${pendingAnalysis.target_phone}`);
 
     // ETAPA 1: Pesquisar empresa no Perplexity (se necessário)
     let companyInfo = pendingAnalysis.research_data;
@@ -390,23 +452,50 @@ IMPORTANTE:
       })
       .eq('id', pendingAnalysis.id);
 
-    console.log(`Analysis ${pendingAnalysis.id} started successfully`);
-
-    return new Response(
-      JSON.stringify({ 
-        success: true,
-        analysis_id: pendingAnalysis.id,
-        first_question: firstQuestion.question
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.log(`✅ [${pendingAnalysis.id}] Análise iniciada com sucesso`);
+    
+    return {
+      success: true,
+      analysis_id: pendingAnalysis.id,
+      first_question: firstQuestion.question
+    };
 
   } catch (error) {
-    console.error('Error in process-analysis:', error);
+    console.error(`❌ [${pendingAnalysis.id}] Erro:`, error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    
+    // SISTEMA DE RETRY: tentar novamente se não excedeu o limite
+    if (pendingAnalysis.retry_count < 3) {
+      console.log(`🔄 [${pendingAnalysis.id}] Retry ${pendingAnalysis.retry_count + 1}/3`);
+      
+      await supabase
+        .from('analysis_requests')
+        .update({ 
+          status: 'pending',
+          retry_count: pendingAnalysis.retry_count + 1,
+          processing_started_at: null
+        })
+        .eq('id', pendingAnalysis.id);
+      
+      throw new Error(`Retry scheduled: ${errorMessage}`);
+    } else {
+      // Após 3 tentativas, marcar como failed definitivamente
+      console.log(`💀 [${pendingAnalysis.id}] Falha definitiva após 3 tentativas`);
+      
+      await supabase
+        .from('analysis_requests')
+        .update({ 
+          status: 'failed',
+          metrics: {
+            error: errorMessage,
+            details: 'Falha após 3 tentativas automáticas',
+            retry_count: pendingAnalysis.retry_count,
+            timestamp: new Date().toISOString()
+          }
+        })
+        .eq('id', pendingAnalysis.id);
+      
+      throw error;
+    }
   }
-});
+}

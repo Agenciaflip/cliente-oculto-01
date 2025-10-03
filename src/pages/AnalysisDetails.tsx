@@ -4,7 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ArrowLeft, Loader2, RefreshCw, AlertCircle } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 
 const AnalysisDetails = () => {
   const { id } = useParams();
@@ -12,6 +14,7 @@ const AnalysisDetails = () => {
   const [analysis, setAnalysis] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -83,6 +86,34 @@ const AnalysisDetails = () => {
       supabase.removeChannel(channel);
     };
   }, [id, navigate]);
+
+  const handleProcessNow = async () => {
+    setIsProcessing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('process-analysis');
+      
+      if (error) {
+        toast({
+          variant: "destructive",
+          title: "Erro ao processar",
+          description: error.message
+        });
+      } else {
+        toast({
+          title: "Processamento iniciado!",
+          description: "Sua análise está sendo processada agora."
+        });
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Erro",
+        description: "Não foi possível iniciar o processamento."
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -159,6 +190,54 @@ const AnalysisDetails = () => {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
+        {/* Feedback de Erro em Tempo Real */}
+        {analysis.status === 'failed' && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>❌ Análise Falhou</AlertTitle>
+            <AlertDescription>
+              <p className="mb-2">
+                {analysis.metrics?.error || 'Erro desconhecido durante o processamento'}
+              </p>
+              
+              {analysis.metrics?.details && (
+                <div className="mt-3">
+                  <p className="text-sm font-semibold mb-1">Detalhes do erro:</p>
+                  <p className="text-sm opacity-90">{analysis.metrics.details}</p>
+                </div>
+              )}
+              
+              {analysis.metrics?.tested_variations && (
+                <details className="mt-3">
+                  <summary className="text-sm font-semibold cursor-pointer">
+                    Ver variações testadas ({analysis.metrics.tested_variations.length})
+                  </summary>
+                  <pre className="text-xs mt-2 p-2 bg-destructive/10 rounded">
+                    {analysis.metrics.tested_variations.join('\n')}
+                  </pre>
+                </details>
+              )}
+              
+              <div className="mt-4 flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => navigate('/dashboard/new')}
+                >
+                  Criar Nova Análise
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => navigate('/dashboard')}
+                >
+                  Voltar ao Dashboard
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+        
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Info da Análise */}
           <div className="lg:col-span-1 space-y-6">
@@ -204,6 +283,30 @@ const AnalysisDetails = () => {
                     Sua análise será processada em breve. Esta página será atualizada automaticamente.
                   </CardDescription>
                 </CardHeader>
+                <CardContent>
+                  <Button
+                    onClick={handleProcessNow}
+                    disabled={isProcessing}
+                    className="w-full"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Processando...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Processar Agora
+                      </>
+                    )}
+                  </Button>
+                  {analysis.retry_count > 0 && (
+                    <p className="text-xs text-muted-foreground mt-2 text-center">
+                      Tentativa {analysis.retry_count + 1} de 4
+                    </p>
+                  )}
+                </CardContent>
               </Card>
             )}
           </div>
