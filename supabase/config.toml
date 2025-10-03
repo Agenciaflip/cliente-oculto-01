@@ -1,1 +1,10 @@
 project_id = "ltjnbmvfjjphljcavrmp"
+
+[functions.process-analysis]
+verify_jwt = false
+
+[functions.handle-webhook]
+verify_jwt = false
+
+[functions.generate-metrics]
+verify_jwt = false

@@ -259,18 +259,234 @@ const AnalysisDetails = () => {
 
         {/* Métricas (só aparece quando completado) */}
         {analysis.status === "completed" && analysis.metrics && (
-          <div className="mt-6">
-            <Card className="shadow-strong">
+          <div className="mt-6 space-y-6">
+            {/* Score Geral */}
+            <Card className="shadow-strong bg-gradient-to-br from-primary/5 to-primary/10">
               <CardHeader>
-                <CardTitle>Análise de Métricas</CardTitle>
-                <CardDescription>
-                  Insights detalhados sobre a experiência do cliente
+                <CardTitle className="flex items-center justify-between">
+                  <span>Pontuação Geral</span>
+                  <span className="text-4xl font-bold text-primary">
+                    {analysis.metrics.overall_score.toFixed(1)}/10
+                  </span>
+                </CardTitle>
+                <CardDescription className="mt-2">
+                  {analysis.metrics.summary}
                 </CardDescription>
               </CardHeader>
+            </Card>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Qualidade da Comunicação */}
+              <Card className="shadow-medium">
+                <CardHeader>
+                  <CardTitle className="text-lg">Qualidade da Comunicação</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Clareza</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-primary rounded-full" 
+                          style={{ width: `${(analysis.metrics.communication_quality.clarity / 10) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-semibold w-8 text-right">
+                        {analysis.metrics.communication_quality.clarity.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Profissionalismo</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-primary rounded-full" 
+                          style={{ width: `${(analysis.metrics.communication_quality.professionalism / 10) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-semibold w-8 text-right">
+                        {analysis.metrics.communication_quality.professionalism.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Empatia</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-primary rounded-full" 
+                          style={{ width: `${(analysis.metrics.communication_quality.empathy / 10) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-semibold w-8 text-right">
+                        {analysis.metrics.communication_quality.empathy.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Completude</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-primary rounded-full" 
+                          style={{ width: `${(analysis.metrics.communication_quality.completeness / 10) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-semibold w-8 text-right">
+                        {analysis.metrics.communication_quality.completeness.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Tempo de Resposta */}
+              <Card className="shadow-medium">
+                <CardHeader>
+                  <CardTitle className="text-lg">Tempo de Resposta</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center py-4">
+                    <div className="text-4xl font-bold text-primary mb-2">
+                      {analysis.metrics.response_time.avg_seconds}s
+                    </div>
+                    <div className="text-sm text-muted-foreground capitalize">
+                      Classificação: <span className="font-semibold">{analysis.metrics.response_time.rating}</span>
+                    </div>
+                  </div>
+                  <div className="mt-4 text-center">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-muted rounded-full">
+                      <span className="text-2xl">
+                        {analysis.metrics.customer_experience_score.toFixed(1)}/10
+                      </span>
+                      <span className="text-sm text-muted-foreground">Experiência</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Informações Capturadas */}
+            <Card className="shadow-medium">
+              <CardHeader>
+                <CardTitle className="text-lg">Informações Capturadas</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <p className="text-sm font-semibold mb-2">Serviços Oferecidos:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {analysis.metrics.information_captured.services_offered.map((service: string, i: number) => (
+                      <span key={i} className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm">
+                        {service}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-semibold mb-1">Preço Transparente:</p>
+                    <p className="text-sm">
+                      {analysis.metrics.information_captured.pricing_transparent ? "✅ Sim" : "❌ Não"}
+                    </p>
+                  </div>
+                  {analysis.metrics.information_captured.pricing_details && (
+                    <div>
+                      <p className="text-sm font-semibold mb-1">Detalhes de Preço:</p>
+                      <p className="text-sm text-muted-foreground">
+                        {analysis.metrics.information_captured.pricing_details}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                {analysis.metrics.information_captured.availability_info && (
+                  <div>
+                    <p className="text-sm font-semibold mb-1">Disponibilidade:</p>
+                    <p className="text-sm text-muted-foreground">
+                      {analysis.metrics.information_captured.availability_info}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Pontos Fortes */}
+              <Card className="shadow-medium border-green-200 dark:border-green-900">
+                <CardHeader>
+                  <CardTitle className="text-lg text-green-700 dark:text-green-400">
+                    ✨ Pontos Fortes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2">
+                    {analysis.metrics.strengths.map((strength: string, i: number) => (
+                      <li key={i} className="text-sm flex items-start gap-2">
+                        <span className="text-green-500 mt-0.5">•</span>
+                        <span>{strength}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+
+              {/* Pontos de Melhoria */}
+              <Card className="shadow-medium border-amber-200 dark:border-amber-900">
+                <CardHeader>
+                  <CardTitle className="text-lg text-amber-700 dark:text-amber-400">
+                    ⚠️ Oportunidades de Melhoria
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2">
+                    {analysis.metrics.weaknesses.map((weakness: string, i: number) => (
+                      <li key={i} className="text-sm flex items-start gap-2">
+                        <span className="text-amber-500 mt-0.5">•</span>
+                        <span>{weakness}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Recomendações */}
+            <Card className="shadow-strong border-primary/20">
+              <CardHeader>
+                <CardTitle className="text-lg">💡 Recomendações Estratégicas</CardTitle>
+              </CardHeader>
               <CardContent>
-                <pre className="bg-muted p-4 rounded-lg overflow-auto">
-                  {JSON.stringify(analysis.metrics, null, 2)}
-                </pre>
+                <ul className="space-y-3">
+                  {analysis.metrics.recommendations.map((rec: string, i: number) => (
+                    <li key={i} className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                      <span className="text-primary font-bold text-lg">{i + 1}.</span>
+                      <span className="text-sm">{rec}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+
+            {/* Resumo Final */}
+            <Card className="shadow-strong bg-gradient-to-br from-primary/10 to-secondary/10">
+              <CardHeader>
+                <CardTitle className="text-lg">Conclusão</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm mb-2">Este atendimento seria recomendado?</p>
+                    <p className="text-2xl font-bold">
+                      {analysis.metrics.would_recommend ? "✅ Sim" : "❌ Não"}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-muted-foreground mb-1">Nota da Experiência</p>
+                    <p className="text-4xl font-bold text-primary">
+                      {analysis.metrics.customer_experience_score.toFixed(1)}
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>

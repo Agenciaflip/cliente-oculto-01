@@ -21,6 +21,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           id: string
+          last_message_at: string | null
           metrics: Json | null
           persona: Database["public"]["Enums"]["persona_type"]
           questions_strategy: Json | null
@@ -28,6 +29,7 @@ export type Database = {
           started_at: string | null
           status: Database["public"]["Enums"]["analysis_status"]
           target_phone: string
+          timeout_minutes: number | null
           user_id: string
         }
         Insert: {
@@ -36,6 +38,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_message_at?: string | null
           metrics?: Json | null
           persona?: Database["public"]["Enums"]["persona_type"]
           questions_strategy?: Json | null
@@ -43,6 +46,7 @@ export type Database = {
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
           target_phone: string
+          timeout_minutes?: number | null
           user_id: string
         }
         Update: {
@@ -51,6 +55,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_message_at?: string | null
           metrics?: Json | null
           persona?: Database["public"]["Enums"]["persona_type"]
           questions_strategy?: Json | null
@@ -58,6 +63,7 @@ export type Database = {
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
           target_phone?: string
+          timeout_minutes?: number | null
           user_id?: string
         }
         Relationships: [
