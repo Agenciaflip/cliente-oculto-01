@@ -5,7 +5,7 @@ import { Session, User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, Plus, Eye } from "lucide-react";
+import { LogOut, Plus, Eye, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Profile {
@@ -20,7 +20,8 @@ const Dashboard = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [analyses, setAnalyses] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // Adiciona loading state
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     // Setup auth state listener FIRST
@@ -68,6 +69,18 @@ const Dashboard = () => {
       setProfile(data);
     };
 
+    // Check admin role
+    const checkAdminRole = async () => {
+      const { data } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("role", "admin")
+        .maybeSingle();
+
+      setIsAdmin(!!data);
+    };
+
     // Fetch analyses
     const fetchAnalyses = async () => {
       const { data, error } = await supabase
@@ -87,6 +100,7 @@ const Dashboard = () => {
 
     fetchProfile();
     fetchAnalyses();
+    checkAdminRole();
   }, [user, isLoading, navigate]);
 
   const handleSignOut = async () => {
@@ -160,6 +174,12 @@ const Dashboard = () => {
               <p className="text-sm text-muted-foreground">Créditos</p>
               <p className="font-medium">{profile.credits_remaining}</p>
             </div>
+            {isAdmin && (
+              <Button variant="outline" size="sm" onClick={() => navigate("/admin")}>
+                <Shield className="h-4 w-4 mr-2" />
+                Admin
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={handleSignOut}>
               <LogOut className="h-4 w-4 mr-2" />
               Sair
