@@ -1,119 +1,55 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { Session, User } from "@supabase/supabase-js";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, Plus, Eye, Shield } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { LogOut, Plus, Eye } from "lucide-react";
 
-interface Profile {
-  subscription_tier: string;
-  credits_remaining: number;
+interface Analysis {
+  id: string;
+  target_phone: string;
+  company_name: string;
+  status: string;
+  created_at: string;
 }
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [analyses, setAnalyses] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { user, logout } = useAuth();
 
-  useEffect(() => {
-    // Setup auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setIsLoading(false); // Marca como carregado após receber estado
-      }
-    );
+  // Dados mockados para demonstração
+  const profile = {
+    subscription_tier: 'premium',
+    credits_remaining: 10,
+  };
 
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false); // Marca como carregado
-    });
+  const analyses: Analysis[] = [
+    {
+      id: '1',
+      target_phone: '+55 11 98765-4321',
+      company_name: 'Exemplo Corp',
+      status: 'completed',
+      created_at: new Date(Date.now() - 86400000).toISOString(),
+    },
+    {
+      id: '2',
+      target_phone: '+55 11 91234-5678',
+      company_name: 'Teste Ltda',
+      status: 'analyzing',
+      created_at: new Date(Date.now() - 172800000).toISOString(),
+    },
+    {
+      id: '3',
+      target_phone: '+55 11 99876-5432',
+      company_name: 'Demo Inc',
+      status: 'pending',
+      created_at: new Date(Date.now() - 259200000).toISOString(),
+    },
+  ];
 
-    return () => subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    // Só redireciona se terminou de carregar E não tem usuário
-    if (!isLoading && !user) {
-      navigate("/auth");
-      return;
-    }
-
-    if (!user) return; // Ainda carregando ou sem usuário
-
-
-    // Fetch profile
-    const fetchProfile = async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("subscription_tier, credits_remaining")
-        .eq("id", user.id)
-        .single();
-
-      if (error) {
-        console.error("Error fetching profile:", error);
-        return;
-      }
-
-      setProfile(data);
-    };
-
-    // Check admin role
-    const checkAdminRole = async () => {
-      const { data } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .eq("role", "admin")
-        .maybeSingle();
-
-      setIsAdmin(!!data);
-    };
-
-    // Fetch analyses
-    const fetchAnalyses = async () => {
-      const { data, error } = await supabase
-        .from("analysis_requests")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(5);
-
-      if (error) {
-        console.error("Error fetching analyses:", error);
-        return;
-      }
-
-      setAnalyses(data || []);
-    };
-
-    fetchProfile();
-    fetchAnalyses();
-    checkAdminRole();
-  }, [user, isLoading, navigate]);
-
-  const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      toast({
-        title: "Erro ao sair",
-        description: error.message,
-        variant: "destructive",
-      });
-    } else {
-      navigate("/auth");
-    }
+  const handleSignOut = () => {
+    logout();
+    navigate("/auth");
   };
 
   const getStatusBadge = (status: string) => {
@@ -142,17 +78,7 @@ const Dashboard = () => {
     );
   };
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  // Sem usuário (já redirecionou no useEffect)
-  if (!user || !profile) {
+  if (!user) {
     return null;
   }
 
@@ -174,12 +100,6 @@ const Dashboard = () => {
               <p className="text-sm text-muted-foreground">Créditos</p>
               <p className="font-medium">{profile.credits_remaining}</p>
             </div>
-            {isAdmin && (
-              <Button variant="outline" size="sm" onClick={() => navigate("/admin")}>
-                <Shield className="h-4 w-4 mr-2" />
-                Admin
-              </Button>
-            )}
             <Button variant="outline" size="sm" onClick={handleSignOut}>
               <LogOut className="h-4 w-4 mr-2" />
               Sair
