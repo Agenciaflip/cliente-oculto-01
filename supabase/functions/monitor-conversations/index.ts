@@ -21,13 +21,35 @@ serve(async (req) => {
     const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
     const evolutionInstance = Deno.env.get('EVOLUTION_INSTANCE_NAME');
 
+    // Tentar pegar analysis_id do body (quando trigger dispara)
+    let specificAnalysisId: string | null = null;
+    try {
+      const body = await req.json();
+      specificAnalysisId = body?.analysis_id || null;
+    } catch {
+      // Se não tem body, processa todas
+    }
+
+    // Debounce de 2 segundos para agrupar mensagens rápidas
+    if (specificAnalysisId) {
+      console.log(`⏱️ [${specificAnalysisId}] Aguardando 2s para agrupar mensagens...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
     console.log('🔍 Monitor: Buscando conversas ativas...');
 
-    // Buscar todas análises em 'chatting'
-    const { data: activeAnalyses } = await supabase
+    // Se tem analysis_id específico, buscar apenas ele
+    let query = supabase
       .from('analysis_requests')
       .select('*')
       .eq('status', 'chatting');
+
+    if (specificAnalysisId) {
+      query = query.eq('id', specificAnalysisId);
+      console.log(`🎯 Processando análise específica: ${specificAnalysisId}`);
+    }
+
+    const { data: activeAnalyses } = await query;
 
     if (!activeAnalyses || activeAnalyses.length === 0) {
       console.log('Nenhuma conversa ativa encontrada');
@@ -37,7 +59,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`📊 Monitorando ${activeAnalyses.length} conversas ativas`);
+    console.log(`📊 Monitorando ${activeAnalyses.length} conversa(s) ativa(s)`);
 
     const results = await Promise.allSettled(
       activeAnalyses.map(analysis => processConversation(
@@ -60,7 +82,8 @@ serve(async (req) => {
         success: true,
         monitored: activeAnalyses.length,
         successful,
-        failed
+        failed,
+        specific_analysis: specificAnalysisId
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
