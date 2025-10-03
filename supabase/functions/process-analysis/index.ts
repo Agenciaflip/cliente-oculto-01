@@ -253,27 +253,64 @@ IMPORTANTE:
 
     const firstQuestion = questionsStrategy.questions[0];
 
-    // Normalize BR phone into candidates: with and without extra '9'
-    const rawDigits = String(pendingAnalysis.target_phone || '').replace(/\D/g, '');
-    const candidates = new Set<string>();
-    if (rawDigits) {
-      candidates.add(rawDigits);
-      if (rawDigits.startsWith('55')) {
-        if (rawDigits.length === 12) {
-          // e.g., 55 + AA + 8-digit -> try adding '9' after country+area
-          candidates.add(rawDigits.slice(0, 4) + '9' + rawDigits.slice(4));
-        }
-        if (rawDigits.length === 13) {
-          // e.g., 55 + AA + 9 + 8-digit -> try removing the '9'
-          candidates.add(rawDigits.slice(0, 4) + rawDigits.slice(5));
-        }
+    // NORMALIZAÇÃO MELHORADA: remover caracteres especiais e garantir formato correto
+    const rawPhone = String(pendingAnalysis.target_phone || '').replace(/\D/g, '');
+    let normalizedPhone = rawPhone;
+    
+    // Se não começa com 55, adicionar código do país
+    if (!normalizedPhone.startsWith('55')) {
+      normalizedPhone = '55' + normalizedPhone;
+    }
+    
+    console.log(`📱 Número original: ${pendingAnalysis.target_phone} → Normalizado: ${normalizedPhone}`);
+
+    // GERAR MÚLTIPLAS VARIAÇÕES para testar
+    const candidates: string[] = [];
+    
+    if (normalizedPhone.startsWith('55')) {
+      const afterCountry = normalizedPhone.slice(2); // remove '55'
+      const areaCode = afterCountry.slice(0, 2); // primeiros 2 dígitos = DDD
+      const localNumber = afterCountry.slice(2); // resto do número
+      
+      // Variação 1: Número completo normalizado (55 + DDD + número)
+      candidates.push(normalizedPhone);
+      
+      // Variação 2: Se tem 11 dígitos após o 55 (55 + 11 dígitos), tentar com 12 (adicionar 9)
+      if (afterCountry.length === 10) {
+        candidates.push(`55${areaCode}9${localNumber}`);
       }
+      
+      // Variação 3: Se tem 12 dígitos após o 55, tentar remover o primeiro dígito do número local
+      if (afterCountry.length === 11 && localNumber.startsWith('9')) {
+        candidates.push(`55${areaCode}${localNumber.slice(1)}`);
+      }
+      
+      // Variação 4: Sem código do país (apenas DDD + número)
+      candidates.push(afterCountry);
+      
+      // Variação 5: Sem código do país + adicionar/remover 9
+      if (afterCountry.length === 10) {
+        candidates.push(`${areaCode}9${localNumber}`);
+      }
+      if (afterCountry.length === 11 && localNumber.startsWith('9')) {
+        candidates.push(`${areaCode}${localNumber.slice(1)}`);
+      }
+    } else {
+      candidates.push(normalizedPhone);
     }
 
+    // Remover duplicatas mantendo ordem
+    const uniqueCandidates = [...new Set(candidates)];
+    console.log(`🔄 Testando ${uniqueCandidates.length} variações: ${uniqueCandidates.join(', ')}`);
+
     let sendOk = false;
-    let usedNumber = rawDigits;
+    let usedNumber = normalizedPhone;
     let lastErr = '';
-    for (const num of candidates) {
+    let lastErrorResponse: any = null;
+
+    for (const num of uniqueCandidates) {
+      console.log(`📤 Tentando enviar para: ${num}`);
+      
       const payload = { number: num, text: firstQuestion.question };
       const resp = await fetch(
         `${evolutionUrl}/message/sendText/${evolutionInstance}`,
@@ -286,18 +323,55 @@ IMPORTANTE:
           body: JSON.stringify(payload),
         }
       );
+      
       if (resp.ok) {
         sendOk = true;
         usedNumber = num;
+        console.log(`✅ Mensagem enviada com sucesso usando: ${num}`);
         break;
       }
-      lastErr = await resp.text();
-      console.warn('Evolution send failed for', num, lastErr);
+      
+      const errorText = await resp.text();
+      lastErr = errorText;
+      
+      try {
+        lastErrorResponse = JSON.parse(errorText);
+        console.warn(`❌ Falha com ${num}:`, lastErrorResponse);
+        
+        // Verificar se o número não existe no WhatsApp
+        if (lastErrorResponse?.response?.message?.[0]?.exists === false) {
+          console.warn(`⚠️ Número ${num} não existe no WhatsApp`);
+        }
+      } catch {
+        console.warn(`❌ Falha com ${num}: ${errorText}`);
+      }
     }
 
     if (!sendOk) {
-      throw new Error(`Evolution API error: ${lastErr || 'unknown error'}`);
+      // Atualizar status para failed com informação detalhada
+      await supabase
+        .from('analysis_requests')
+        .update({ 
+          status: 'failed',
+          metrics: {
+            error: 'Número não encontrado no WhatsApp',
+            details: lastErrorResponse || lastErr,
+            tested_variations: uniqueCandidates,
+            timestamp: new Date().toISOString()
+          }
+        })
+        .eq('id', pendingAnalysis.id);
+      
+      throw new Error(`Evolution API error: Nenhuma variação do número funcionou. Última tentativa: ${lastErr}`);
     }
+
+    // ATUALIZAR target_phone com o número que funcionou
+    await supabase
+      .from('analysis_requests')
+      .update({ target_phone: usedNumber })
+      .eq('id', pendingAnalysis.id);
+    
+    console.log(`💾 Número atualizado no banco: ${usedNumber}`);
     // Salvar mensagem inicial
     await supabase.from('conversation_messages').insert({
       analysis_id: pendingAnalysis.id,
