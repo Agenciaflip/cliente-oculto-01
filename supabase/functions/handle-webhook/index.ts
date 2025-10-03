@@ -61,21 +61,34 @@ serve(async (req) => {
 
     console.log(`Received message from ${phoneNumber}: ${messageText}`);
 
-    // Buscar análise ativa para este número
-    const { data: activeAnalysis } = await supabase
+    // Criar variações do número para buscar análise ativa
+    const phoneVariations = [
+      phoneNumber,                           // Ex: 556283071325
+      `55629${phoneNumber.slice(4)}`,       // Ex: 5562983071325 (adiciona 9)
+      phoneNumber.slice(2),                  // Ex: 6283071325 (remove 55)
+      `629${phoneNumber.slice(4)}`          // Ex: 62983071325 (remove 55 + adiciona 9)
+    ];
+    
+    console.log(`🔍 Buscando análise para variações: ${phoneVariations.join(', ')}`);
+
+    // Buscar análise ativa com múltiplas variações do número
+    const { data: activeAnalyses } = await supabase
       .from('analysis_requests')
       .select('*')
       .eq('status', 'chatting')
-      .like('target_phone', `%${phoneNumber}%`)
-      .single();
+      .or(phoneVariations.map(v => `target_phone.like.%${v}%`).join(','));
+    
+    const activeAnalysis = activeAnalyses?.[0];
 
     if (!activeAnalysis) {
-      console.log('No active analysis found for this number');
+      console.log(`❌ Nenhuma análise ativa encontrada para: ${phoneVariations.join(', ')}`);
       return new Response(
         JSON.stringify({ message: 'No active analysis' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    
+    console.log(`✅ Análise encontrada: ${activeAnalysis.id} (target_phone: ${activeAnalysis.target_phone})`);
 
     console.log(`Found active analysis: ${activeAnalysis.id}`);
 
