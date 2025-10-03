@@ -1,3 +1,4 @@
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -16,7 +17,7 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const lovableKey = Deno.env.get('LOVABLE_API_KEY');
+    const openAIKey = Deno.env.get('OPENAI_API_KEY');
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL');
     const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
     const evolutionInstance = Deno.env.get('EVOLUTION_INSTANCE_NAME');
@@ -65,7 +66,7 @@ serve(async (req) => {
       activeAnalyses.map(analysis => processConversation(
         analysis, 
         supabase, 
-        lovableKey!, 
+        openAIKey!, 
         evolutionUrl!, 
         evolutionKey!, 
         evolutionInstance!
@@ -101,7 +102,7 @@ serve(async (req) => {
 async function processConversation(
   analysis: any,
   supabase: any,
-  lovableKey: string,
+  openAIKey: string,
   evolutionUrl: string,
   evolutionKey: string,
   evolutionInstance: string
@@ -139,57 +140,50 @@ async function processConversation(
         .map((m: any) => `${m.role === 'ai' ? 'Cliente Oculto' : 'Empresa'}: ${m.content}`)
         .join('\n');
 
-      // Buscar próxima pergunta
-      const currentQuestionIndex = messages.filter((m: any) => m.role === 'ai').length;
+      // Buscar próxima pergunta - CORREÇÃO: só contar perguntas reais (não nudges)
+      const allMessages = messages;
+      const aiQuestions = allMessages.filter((m: any) => 
+        m.role === 'ai' && !m.metadata?.is_nudge
+      );
+      const currentQuestionIndex = aiQuestions.length;
       const questionsStrategy = analysis.questions_strategy;
       const totalQuestions = questionsStrategy?.questions?.length || 0;
 
-      // Verificar se todas perguntas foram respondidas
+      // NOVO: Permitir conversa livre após perguntas estruturadas
       if (currentQuestionIndex >= totalQuestions) {
-        console.log(`✅ [${analysis.id}] Todas perguntas respondidas - finalizando`);
-        
-        await supabase
-          .from('analysis_requests')
-          .update({ status: 'processing' })
-          .eq('id', analysis.id);
-
-        await supabase.functions.invoke('generate-metrics', {
-          body: { analysis_id: analysis.id }
-        });
-
-        // Marcar mensagens como processadas
-        for (const msg of unprocessedMessages) {
-          await supabase
-            .from('conversation_messages')
-            .update({ metadata: { ...msg.metadata, processed: true } })
-            .eq('id', msg.id);
-        }
-
-        return { analysis_id: analysis.id, action: 'completed' };
+        console.log(`✅ [${analysis.id}] Perguntas estruturadas completas - modo conversa livre`);
+        // Não finaliza mais - continua em modo conversa livre
       }
 
-      const nextQuestion = questionsStrategy.questions[currentQuestionIndex];
+      // Determinar próxima resposta
+      let adaptedQuestion: string;
+      let isFreestyle = false;
+      let nextQuestion: any = null;
 
-      // Chamar IA com robustez
-      let adaptedQuestion = nextQuestion.question;
+      if (currentQuestionIndex < totalQuestions) {
+        nextQuestion = questionsStrategy.questions[currentQuestionIndex];
+        adaptedQuestion = nextQuestion.question;
+      } else {
+        // Modo conversa livre - gerar resposta contextual
+        isFreestyle = true;
+        adaptedQuestion = "Continuando conversa...";
+      }
 
+      // Chamar OpenAI para adaptar/gerar resposta
       try {
-        const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${lovableKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
-            messages: [
-              {
-                role: 'system',
-                content: `Você é um cliente oculto ${analysis.persona}. Adapte a próxima pergunta considerando TODAS as mensagens recentes do cliente. Seja natural e coerente.`
-              },
-              {
-                role: 'user',
-                content: `HISTÓRICO COMPLETO:
+        const systemPrompt = isFreestyle
+          ? `Você é um cliente oculto ${analysis.persona} em uma conversa livre. Continue a conversa de forma natural, fazendo perguntas relevantes ou respondendo ao que foi dito.`
+          : `Você é um cliente oculto ${analysis.persona}. Adapte a próxima pergunta considerando TODAS as mensagens recentes do cliente. Seja natural e coerente.`;
+
+        const userPrompt = isFreestyle
+          ? `HISTÓRICO COMPLETO:
+${conversationHistory}
+
+MENSAGENS RECENTES DO CLIENTE:
+${groupedContent}
+
+Continue a conversa de forma natural. Faça uma pergunta relevante ou comente sobre o que foi dito. Máximo 2 frases.`
+          : `HISTÓRICO COMPLETO:
 ${conversationHistory}
 
 MENSAGENS AGRUPADAS DO CLIENTE:
@@ -198,32 +192,48 @@ ${groupedContent}
 PRÓXIMA PERGUNTA PLANEJADA: ${nextQuestion.question}
 OBJETIVO: ${nextQuestion.expected_info}
 
-Adapte a pergunta de forma natural considerando TUDO que o cliente disse. Seja direto, sem rodeios.`
-              }
+Adapte a pergunta de forma natural considerando TUDO que o cliente disse. Seja direto, sem rodeios.`;
+
+        const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openAIKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
             ],
+            temperature: 0.7,
             max_tokens: 300,
           }),
         });
 
         if (!aiResponse.ok) {
           const status = aiResponse.status;
-          console.error(`❌ [${analysis.id}] IA falhou: ${status}`);
+          console.error(`❌ [${analysis.id}] OpenAI falhou: ${status}`);
           
           if (status === 429) {
-            console.error('Rate limit - usando pergunta planejada');
-          } else if (status === 402) {
-            console.error('Payment required - usando pergunta planejada');
+            console.error('Rate limit - usando resposta padrão');
+          } else if (status === 401) {
+            console.error('Unauthorized - verifique OPENAI_API_KEY');
           }
-          // Fallback: usar pergunta planejada
-          adaptedQuestion = nextQuestion.question;
+          // Fallback
+          if (!isFreestyle && nextQuestion) {
+            adaptedQuestion = nextQuestion.question;
+          }
         } else {
           const aiData = await aiResponse.json();
-          adaptedQuestion = aiData.choices?.[0]?.message?.content?.trim() || nextQuestion.question;
-          console.log(`🤖 [${analysis.id}] IA adaptou: ${adaptedQuestion}`);
+          adaptedQuestion = aiData.choices?.[0]?.message?.content?.trim() || adaptedQuestion;
+          console.log(`🤖 [${analysis.id}] OpenAI adaptou: ${adaptedQuestion}`);
         }
       } catch (error) {
-        console.error(`❌ [${analysis.id}] Erro na IA:`, error);
-        adaptedQuestion = nextQuestion.question;
+        console.error(`❌ [${analysis.id}] Erro na OpenAI:`, error);
+        if (!isFreestyle && nextQuestion) {
+          adaptedQuestion = nextQuestion.question;
+        }
       }
 
       // Enviar via Evolution
@@ -258,8 +268,9 @@ Adapte a pergunta de forma natural considerando TUDO que o cliente disse. Seja d
         metadata: { 
           processed: true,
           order: currentQuestionIndex + 1,
-          expected_info: nextQuestion.expected_info,
-          grouped_responses: unprocessedMessages.length
+          expected_info: nextQuestion?.expected_info || 'conversa livre',
+          grouped_responses: unprocessedMessages.length,
+          is_freestyle: isFreestyle
         }
       });
 
@@ -309,14 +320,14 @@ Adapte a pergunta de forma natural considerando TUDO que o cliente disse. Seja d
         let nudgeText = 'Oi, conseguiu ver minha mensagem?';
 
         try {
-          const nudgeResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          const nudgeResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${lovableKey}`,
+              'Authorization': `Bearer ${openAIKey}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'google/gemini-2.5-flash',
+              model: 'gpt-4o-mini',
               messages: [
                 {
                   role: 'system',
@@ -331,6 +342,7 @@ Gere uma mensagem de nudge ${nudgePrompts[nudgeType as keyof typeof nudgePrompts
 Máximo 15 palavras. Seja natural e humano.`
                 }
               ],
+              temperature: 0.7,
               max_tokens: 50,
             }),
           });

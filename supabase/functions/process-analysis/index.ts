@@ -1,3 +1,4 @@
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -17,7 +18,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const perplexityKey = Deno.env.get('PERPLEXITY_API_KEY');
-    const lovableKey = Deno.env.get('LOVABLE_API_KEY');
+    const openAIKey = Deno.env.get('OPENAI_API_KEY');
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL');
     const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
     const evolutionInstance = Deno.env.get('EVOLUTION_INSTANCE_NAME');
@@ -81,7 +82,7 @@ serve(async (req) => {
 
     // Processar cada análise em paralelo
     const results = await Promise.allSettled(
-      pendingAnalyses.map(analysis => processAnalysis(analysis, supabase, perplexityKey, lovableKey, evolutionUrl, evolutionKey, evolutionInstance))
+      pendingAnalyses.map(analysis => processAnalysis(analysis, supabase, perplexityKey, openAIKey, evolutionUrl, evolutionKey, evolutionInstance))
     );
 
     const successful = results.filter(r => r.status === 'fulfilled').length;
@@ -119,7 +120,7 @@ async function processAnalysis(
   pendingAnalysis: any,
   supabase: any,
   perplexityKey: string | undefined,
-  lovableKey: string | undefined,
+  openAIKey: string | undefined,
   evolutionUrl: string | undefined,
   evolutionKey: string | undefined,
   evolutionInstance: string | undefined
@@ -173,8 +174,8 @@ async function processAnalysis(
       }
     }
 
-    // ETAPA 2: Gerar estratégia de perguntas com Lovable AI
-    console.log('Generating questions strategy with Lovable AI...');
+    // ETAPA 2: Gerar estratégia de perguntas com OpenAI
+    console.log('Generating questions strategy with OpenAI (gpt-4o)...');
 
     const personaDescriptions = {
       interested: 'um cliente interessado e curioso, que faz perguntas naturais sobre os serviços',
@@ -192,14 +193,15 @@ async function processAnalysis(
 
     const config = depthConfig[pendingAnalysis.analysis_depth as keyof typeof depthConfig] || depthConfig.quick;
 
-    const strategyResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const strategyResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${lovableKey}`,
+        'Authorization': `Bearer ${openAIKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-4o',
+        temperature: 0.7,
         messages: [
           {
             role: 'system',

@@ -1,3 +1,4 @@
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -16,7 +17,7 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const lovableKey = Deno.env.get('LOVABLE_API_KEY');
+    const openAIKey = Deno.env.get('OPENAI_API_KEY');
 
     const { analysis_id } = await req.json();
 
@@ -78,17 +79,18 @@ serve(async (req) => {
       ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
       : 0;
 
-    console.log('Calling Lovable AI to generate metrics...');
+    console.log('Calling OpenAI (gpt-4o) to generate metrics...');
 
-    // Chamar IA para análise completa
-    const metricsResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    // Chamar OpenAI para análise completa
+    const metricsResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${lovableKey}`,
+        'Authorization': `Bearer ${openAIKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-4o',
+        temperature: 0.7,
         messages: [
           {
             role: 'system',
