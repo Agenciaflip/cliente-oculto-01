@@ -20,13 +20,15 @@ const Dashboard = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [analyses, setAnalyses] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true); // Adiciona loading state
 
   useEffect(() => {
-    // Setup auth state listener
+    // Setup auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+        setIsLoading(false); // Marca como carregado após receber estado
       }
     );
 
@@ -34,16 +36,21 @@ const Dashboard = () => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
+      setIsLoading(false); // Marca como carregado
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!user) {
+    // Só redireciona se terminou de carregar E não tem usuário
+    if (!isLoading && !user) {
       navigate("/auth");
       return;
     }
+
+    if (!user) return; // Ainda carregando ou sem usuário
+
 
     // Fetch profile
     const fetchProfile = async () => {
@@ -80,7 +87,7 @@ const Dashboard = () => {
 
     fetchProfile();
     fetchAnalyses();
-  }, [user, navigate]);
+  }, [user, isLoading, navigate]);
 
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut();
@@ -121,12 +128,18 @@ const Dashboard = () => {
     );
   };
 
-  if (!user || !profile) {
+  // Loading state
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
+  }
+
+  // Sem usuário (já redirecionou no useEffect)
+  if (!user || !profile) {
+    return null;
   }
 
   return (
