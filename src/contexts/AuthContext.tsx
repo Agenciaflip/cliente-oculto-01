@@ -14,7 +14,7 @@ const ADMIN_CREDENTIALS = {
 
 interface User {
   email: string;
-  role: 'admin';
+  role: 'admin' | 'user';
 }
 
 interface AuthContextType {

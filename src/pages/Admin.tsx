@@ -1,20 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Users, MessageSquare, ArrowLeft } from "lucide-react";
-import { toast } from "sonner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { LogOut, Users, BarChart3, Activity } from "lucide-react";
 
 interface UserData {
   id: string;
@@ -22,279 +12,227 @@ interface UserData {
   subscription_tier: string;
   credits_remaining: number;
   analyses_count: number;
-  last_analysis?: string;
 }
 
 interface AnalysisData {
   id: string;
+  user_email: string;
   target_phone: string;
   company_name: string;
   status: string;
-  persona: string;
   created_at: string;
-  messages_count: number;
 }
 
 const Admin = () => {
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const { isAdmin, loading: adminLoading } = useIsAdmin();
   const [users, setUsers] = useState<UserData[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [analyses, setAnalyses] = useState<AnalysisData[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!adminLoading && !isAdmin) {
-      toast.error("Acesso negado");
-      navigate("/dashboard");
+    // Verifica se é admin
+    if (user?.role !== 'admin') {
+      navigate('/dashboard');
+      return;
     }
-  }, [isAdmin, adminLoading, navigate]);
 
-  useEffect(() => {
-    if (isAdmin) {
-      loadUsers();
-    }
-  }, [isAdmin]);
-
-  const loadUsers = async () => {
-    try {
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('id, subscription_tier, credits_remaining')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const usersData: UserData[] = [];
-      
-      for (const profile of profiles || []) {
-        // Get analyses count
-        const { count } = await supabase
-          .from('analysis_requests')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', profile.id);
-
-        // Get last analysis
-        const { data: lastAnalysis } = await supabase
-          .from('analysis_requests')
-          .select('created_at')
-          .eq('user_id', profile.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        usersData.push({
-          id: profile.id,
-          email: 'Usuário ' + profile.id.substring(0, 8),
-          subscription_tier: profile.subscription_tier,
-          credits_remaining: profile.credits_remaining,
-          analyses_count: count || 0,
-          last_analysis: lastAnalysis?.created_at,
-        });
+    // Dados mockados de usuários
+    setUsers([
+      {
+        id: '1',
+        email: 'contato@agenciacafeonline.com.br',
+        subscription_tier: 'Enterprise',
+        credits_remaining: 1000,
+        analyses_count: 15
+      },
+      {
+        id: '2',
+        email: 'cliente1@exemplo.com',
+        subscription_tier: 'Pro',
+        credits_remaining: 45,
+        analyses_count: 8
+      },
+      {
+        id: '3',
+        email: 'cliente2@exemplo.com',
+        subscription_tier: 'Free',
+        credits_remaining: 3,
+        analyses_count: 2
       }
+    ]);
 
-      setUsers(usersData);
-    } catch (error) {
-      console.error('Error loading users:', error);
-      toast.error("Erro ao carregar usuários");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadUserAnalyses = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('analysis_requests')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const analysesData: AnalysisData[] = [];
-      
-      for (const analysis of data || []) {
-        const { count } = await supabase
-          .from('conversation_messages')
-          .select('*', { count: 'exact', head: true })
-          .eq('analysis_id', analysis.id);
-
-        analysesData.push({
-          id: analysis.id,
-          target_phone: analysis.target_phone,
-          company_name: analysis.company_name || 'N/A',
-          status: analysis.status,
-          persona: analysis.persona,
-          created_at: analysis.created_at,
-          messages_count: count || 0,
-        });
+    // Dados mockados de análises
+    setAnalyses([
+      {
+        id: '1',
+        user_email: 'contato@agenciacafeonline.com.br',
+        target_phone: '+5511999999999',
+        company_name: 'Empresa A',
+        status: 'completed',
+        created_at: new Date().toISOString()
+      },
+      {
+        id: '2',
+        user_email: 'cliente1@exemplo.com',
+        target_phone: '+5511988888888',
+        company_name: 'Empresa B',
+        status: 'processing',
+        created_at: new Date(Date.now() - 3600000).toISOString()
+      },
+      {
+        id: '3',
+        user_email: 'cliente2@exemplo.com',
+        target_phone: '+5511977777777',
+        company_name: 'Empresa C',
+        status: 'completed',
+        created_at: new Date(Date.now() - 7200000).toISOString()
       }
+    ]);
+  }, [user, navigate]);
 
-      setAnalyses(analysesData);
-      setSelectedUserId(userId);
-    } catch (error) {
-      console.error('Error loading analyses:', error);
-      toast.error("Erro ao carregar análises");
-    }
+  const handleSignOut = () => {
+    logout();
+    navigate('/auth');
   };
 
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-      pending: "secondary",
-      processing: "default",
-      chatting: "default",
-      completed: "outline",
-      failed: "destructive",
-      timeout: "destructive",
+    const variants = {
+      completed: { variant: "default" as const, label: "Concluída" },
+      processing: { variant: "secondary" as const, label: "Processando" },
+      pending: { variant: "outline" as const, label: "Pendente" }
     };
-
-    const labels: Record<string, string> = {
-      pending: "Pendente",
-      processing: "Processando",
-      chatting: "Conversando",
-      completed: "Concluída",
-      failed: "Falhou",
-      timeout: "Timeout",
-    };
-
-    return (
-      <Badge variant={variants[status] || "default"}>
-        {labels[status] || status}
-      </Badge>
-    );
+    const config = variants[status as keyof typeof variants] || variants.pending;
+    return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  if (adminLoading || loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin" />
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return null;
-  }
+  const totalAnalyses = users.reduce((sum, user) => sum + user.analyses_count, 0);
+  const totalUsers = users.length;
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold">Painel Administrativo</h1>
-            <p className="text-muted-foreground mt-2">Gerencie usuários e análises</p>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b bg-card">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">Painel Administrativo</h1>
+              <p className="text-sm text-muted-foreground">{user?.email}</p>
+            </div>
+            <Button onClick={handleSignOut} variant="outline">
+              <LogOut className="mr-2 h-4 w-4" />
+              Sair
+            </Button>
           </div>
-          <Button variant="outline" onClick={() => navigate("/dashboard")}>
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Voltar ao Dashboard
-          </Button>
         </div>
+      </header>
 
-        <div className="grid gap-6 md:grid-cols-2">
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8 space-y-8">
+        {/* Stats Cards */}
+        <div className="grid gap-4 md:grid-cols-3">
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                Usuários ({users.length})
-              </CardTitle>
-              <CardDescription>Lista de todos os usuários da plataforma</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total de Usuários</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>Plano</TableHead>
-                      <TableHead>Créditos</TableHead>
-                      <TableHead>Análises</TableHead>
-                      <TableHead>Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell className="font-medium font-mono text-xs">
-                          {user.id.substring(0, 8)}...
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{user.subscription_tier}</Badge>
-                        </TableCell>
-                        <TableCell>{user.credits_remaining}</TableCell>
-                        <TableCell>{user.analyses_count}</TableCell>
-                        <TableCell>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => loadUserAnalyses(user.id)}
-                          >
-                            Ver Análises
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div className="text-2xl font-bold">{totalUsers}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total de Análises</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalAnalyses}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Análises Ativas</CardTitle>
+              <Activity className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {analyses.filter(a => a.status === 'processing').length}
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5" />
-                Análises do Usuário
-              </CardTitle>
-              <CardDescription>
-                {selectedUserId 
-                  ? `Análises selecionadas (${analyses.length})`
-                  : "Selecione um usuário para ver suas análises"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {selectedUserId ? (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Telefone</TableHead>
-                        <TableHead>Empresa</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Msgs</TableHead>
-                        <TableHead>Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {analyses.map((analysis) => (
-                        <TableRow key={analysis.id}>
-                          <TableCell className="font-medium">{analysis.target_phone}</TableCell>
-                          <TableCell>{analysis.company_name}</TableCell>
-                          <TableCell>{getStatusBadge(analysis.status)}</TableCell>
-                          <TableCell>{analysis.messages_count}</TableCell>
-                          <TableCell>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => navigate(`/dashboard/analysis/${analysis.id}`)}
-                            >
-                              Ver Detalhes
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  Selecione um usuário para visualizar suas análises
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
-      </div>
+
+        {/* Users Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Usuários Cadastrados</CardTitle>
+            <CardDescription>Gerenciar todos os usuários da plataforma</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-2">Email</th>
+                    <th className="text-left p-2">Plano</th>
+                    <th className="text-left p-2">Créditos</th>
+                    <th className="text-left p-2">Análises</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.id} className="border-b">
+                      <td className="p-2">{user.email}</td>
+                      <td className="p-2">
+                        <Badge variant="secondary">{user.subscription_tier}</Badge>
+                      </td>
+                      <td className="p-2">{user.credits_remaining}</td>
+                      <td className="p-2">{user.analyses_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Recent Analyses */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Análises Recentes</CardTitle>
+            <CardDescription>Todas as análises da plataforma</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-2">Usuário</th>
+                    <th className="text-left p-2">Empresa</th>
+                    <th className="text-left p-2">Telefone</th>
+                    <th className="text-left p-2">Status</th>
+                    <th className="text-left p-2">Data</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analyses.map((analysis) => (
+                    <tr key={analysis.id} className="border-b">
+                      <td className="p-2 text-sm">{analysis.user_email}</td>
+                      <td className="p-2">{analysis.company_name}</td>
+                      <td className="p-2 text-sm">{analysis.target_phone}</td>
+                      <td className="p-2">{getStatusBadge(analysis.status)}</td>
+                      <td className="p-2 text-sm">
+                        {new Date(analysis.created_at).toLocaleString('pt-BR')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </main>
     </div>
   );
 };
