@@ -1,18 +1,9 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
-
-// ⚠️ AVISO DE SEGURANÇA:
-// Este sistema usa credenciais hardcoded no código-fonte.
-// NÃO É SEGURO para produção real com dados sensíveis.
-// Use apenas para demonstração ou ambientes controlados.
-// Para produção, use Lovable Cloud/Supabase ou backend próprio com hash de senhas.
-
-const ADMIN_CREDENTIALS = {
-  email: 'contato@agenciacafeonline.com.br',
-  password: '@@agenciaflip2025**'
-};
+import { supabase } from "@/integrations/supabase/client";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 interface User {
+  id: string;
   email: string;
   role: 'admin' | 'user';
 }
@@ -21,8 +12,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; user?: User }>;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<{ success: boolean; user?: User; error?: string }>;
+  signup: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,42 +23,91 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Verifica sessionStorage ao carregar
+  // Verifica role do usuário
+  const checkUserRole = async (supabaseUser: SupabaseUser): Promise<'admin' | 'user'> => {
+    const { data } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', supabaseUser.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+    
+    return data ? 'admin' : 'user';
+  };
+
+  // Inicializa sessão
   useEffect(() => {
-    const storedUser = sessionStorage.getItem('auth_user');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Erro ao recuperar usuário:', error);
-        sessionStorage.removeItem('auth_user');
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const role = await checkUserRole(session.user);
+        setUser({
+          id: session.user.id,
+          email: session.user.email!,
+          role
+        });
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        const role = await checkUserRole(session.user);
+        setUser({
+          id: session.user.id,
+          email: session.user.email!,
+          role
+        });
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; user?: User }> => {
-    // Simula delay de rede para melhor UX
-    await new Promise(resolve => setTimeout(resolve, 500));
+  const login = async (email: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    // Valida credenciais
-    if (email === ADMIN_CREDENTIALS.email && password === ADMIN_CREDENTIALS.password) {
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    if (data.user) {
+      const role = await checkUserRole(data.user);
       const authenticatedUser: User = {
-        email: ADMIN_CREDENTIALS.email,
-        role: 'admin'
+        id: data.user.id,
+        email: data.user.email!,
+        role
       };
-      
       setUser(authenticatedUser);
-      sessionStorage.setItem('auth_user', JSON.stringify(authenticatedUser));
       return { success: true, user: authenticatedUser };
     }
 
-    return { success: false };
+    return { success: false, error: 'Usuário não encontrado' };
   };
 
-  const logout = () => {
+  const signup = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/dashboard`
+      }
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    sessionStorage.removeItem('auth_user');
   };
 
   const value = {
@@ -74,6 +115,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     user,
     loading,
     login,
+    signup,
     logout
   };
 

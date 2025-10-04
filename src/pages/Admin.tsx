@@ -1,116 +1,154 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, Users, BarChart3, Activity } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { supabase } from "@/integrations/supabase/client";
+import { LogOut, Loader2, Users, BarChart3, Activity } from "lucide-react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface UserData {
   id: string;
   email: string;
-  subscription_tier: string;
-  credits_remaining: number;
-  analyses_count: number;
+  tier: string;
+  credits: number;
+  analysisCount: number;
+  createdAt: string;
 }
 
 interface AnalysisData {
   id: string;
-  user_email: string;
-  target_phone: string;
-  company_name: string;
+  userEmail: string;
+  targetPhone: string;
+  companyName: string | null;
   status: string;
-  created_at: string;
+  createdAt: string;
 }
 
 const Admin = () => {
   const { user, logout } = useAuth();
+  const { isAdmin, loading: adminLoading } = useIsAdmin();
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserData[]>([]);
   const [analyses, setAnalyses] = useState<AnalysisData[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Verifica se é admin
-    if (user?.role !== 'admin') {
+    if (!adminLoading && !isAdmin) {
       navigate('/dashboard');
       return;
     }
 
-    // Dados mockados de usuários
-    setUsers([
-      {
-        id: '1',
-        email: 'contato@agenciacafeonline.com.br',
-        subscription_tier: 'Enterprise',
-        credits_remaining: 1000,
-        analyses_count: 15
-      },
-      {
-        id: '2',
-        email: 'cliente1@exemplo.com',
-        subscription_tier: 'Pro',
-        credits_remaining: 45,
-        analyses_count: 8
-      },
-      {
-        id: '3',
-        email: 'cliente2@exemplo.com',
-        subscription_tier: 'Free',
-        credits_remaining: 3,
-        analyses_count: 2
-      }
-    ]);
+    if (!adminLoading && isAdmin) {
+      loadData();
+    }
+  }, [isAdmin, adminLoading, navigate]);
 
-    // Dados mockados de análises
-    setAnalyses([
-      {
-        id: '1',
-        user_email: 'contato@agenciacafeonline.com.br',
-        target_phone: '+5511999999999',
-        company_name: 'Empresa A',
-        status: 'completed',
-        created_at: new Date().toISOString()
-      },
-      {
-        id: '2',
-        user_email: 'cliente1@exemplo.com',
-        target_phone: '+5511988888888',
-        company_name: 'Empresa B',
-        status: 'processing',
-        created_at: new Date(Date.now() - 3600000).toISOString()
-      },
-      {
-        id: '3',
-        user_email: 'cliente2@exemplo.com',
-        target_phone: '+5511977777777',
-        company_name: 'Empresa C',
-        status: 'completed',
-        created_at: new Date(Date.now() - 7200000).toISOString()
-      }
-    ]);
-  }, [user, navigate]);
+  const loadData = async () => {
+    try {
+      setLoading(true);
 
-  const handleSignOut = () => {
-    logout();
+      // Buscar usuários com profiles
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (profilesError) throw profilesError;
+
+      // Buscar todos os usuários autenticados
+      const { data: authData } = await supabase.auth.admin.listUsers();
+      const authUsers = authData?.users || [];
+
+      // Combinar dados
+      const usersWithEmail = profilesData?.map(profile => {
+        const authUser = authUsers.find(u => u.id === profile.id);
+        return {
+          id: profile.id,
+          email: authUser?.email || 'N/A',
+          tier: profile.subscription_tier,
+          credits: profile.credits_remaining,
+          analysisCount: 0,
+          createdAt: profile.created_at
+        };
+      }) || [];
+
+      // Buscar análises
+      const { data: analysesData, error: analysesError } = await supabase
+        .from('analysis_requests')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (analysesError) throw analysesError;
+
+      // Enriquecer com email do usuário
+      const analysesWithEmail = analysesData?.map(analysis => {
+        const userEmail = usersWithEmail.find(u => u.id === analysis.user_id)?.email || 'N/A';
+        return {
+          id: analysis.id,
+          userEmail,
+          targetPhone: analysis.target_phone,
+          companyName: analysis.company_name,
+          status: analysis.status,
+          createdAt: analysis.created_at
+        };
+      }) || [];
+
+      // Contar análises por usuário
+      const userAnalysisCounts = analysesData?.reduce((acc, analysis) => {
+        acc[analysis.user_id] = (acc[analysis.user_id] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>) || {};
+
+      const usersWithCounts = usersWithEmail.map(user => ({
+        ...user,
+        analysisCount: userAnalysisCounts[user.id] || 0
+      }));
+
+      setUsers(usersWithCounts);
+      setAnalyses(analysesWithEmail);
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await logout();
     navigate('/auth');
   };
 
   const getStatusBadge = (status: string) => {
-    const variants = {
-      completed: { variant: "default" as const, label: "Concluída" },
-      processing: { variant: "secondary" as const, label: "Processando" },
-      pending: { variant: "outline" as const, label: "Pendente" }
+    const statusConfig = {
+      completed: { label: 'Concluída', variant: 'default' as const },
+      processing: { label: 'Processando', variant: 'secondary' as const },
+      pending: { label: 'Pendente', variant: 'outline' as const },
+      error: { label: 'Erro', variant: 'destructive' as const }
     };
-    const config = variants[status as keyof typeof variants] || variants.pending;
+
+    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  const totalAnalyses = users.reduce((sum, user) => sum + user.analyses_count, 0);
+  if (adminLoading || loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const totalAnalyses = users.reduce((sum, user) => sum + user.analysisCount, 0);
   const totalUsers = users.length;
+  const activeAnalyses = analyses.filter(a => a.status === 'processing').length;
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b bg-card">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -126,7 +164,6 @@ const Admin = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="container mx-auto px-4 py-8 space-y-8">
         {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-3">
@@ -156,9 +193,7 @@ const Admin = () => {
               <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {analyses.filter(a => a.status === 'processing').length}
-              </div>
+              <div className="text-2xl font-bold">{activeAnalyses}</div>
             </CardContent>
           </Card>
         </div>
@@ -178,19 +213,30 @@ const Admin = () => {
                     <th className="text-left p-2">Plano</th>
                     <th className="text-left p-2">Créditos</th>
                     <th className="text-left p-2">Análises</th>
+                    <th className="text-left p-2">Cadastro</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((user) => (
-                    <tr key={user.id} className="border-b">
-                      <td className="p-2">{user.email}</td>
+                  {users.map((userData) => (
+                    <tr key={userData.id} className="border-b">
+                      <td className="p-2 text-sm">{userData.email}</td>
                       <td className="p-2">
-                        <Badge variant="secondary">{user.subscription_tier}</Badge>
+                        <Badge variant="secondary">{userData.tier}</Badge>
                       </td>
-                      <td className="p-2">{user.credits_remaining}</td>
-                      <td className="p-2">{user.analyses_count}</td>
+                      <td className="p-2">{userData.credits}</td>
+                      <td className="p-2">{userData.analysisCount}</td>
+                      <td className="p-2 text-sm">
+                        {format(new Date(userData.createdAt), "dd/MM/yyyy", { locale: ptBR })}
+                      </td>
                     </tr>
                   ))}
+                  {users.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="p-4 text-center text-muted-foreground">
+                        Nenhum usuário encontrado
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -218,15 +264,22 @@ const Admin = () => {
                 <tbody>
                   {analyses.map((analysis) => (
                     <tr key={analysis.id} className="border-b">
-                      <td className="p-2 text-sm">{analysis.user_email}</td>
-                      <td className="p-2">{analysis.company_name}</td>
-                      <td className="p-2 text-sm">{analysis.target_phone}</td>
+                      <td className="p-2 text-sm">{analysis.userEmail}</td>
+                      <td className="p-2">{analysis.companyName || 'N/A'}</td>
+                      <td className="p-2 text-sm">{analysis.targetPhone}</td>
                       <td className="p-2">{getStatusBadge(analysis.status)}</td>
                       <td className="p-2 text-sm">
-                        {new Date(analysis.created_at).toLocaleString('pt-BR')}
+                        {format(new Date(analysis.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
                       </td>
                     </tr>
                   ))}
+                  {analyses.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="p-4 text-center text-muted-foreground">
+                        Nenhuma análise encontrada
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
