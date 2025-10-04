@@ -37,19 +37,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Inicializa sessão
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const role = await checkUserRole(session.user);
-        setUser({
-          id: session.user.id,
-          email: session.user.email!,
-          role
-        });
-      }
-      setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth event:', event);
+      
       if (session?.user) {
         const role = await checkUserRole(session.user);
         setUser({
@@ -60,6 +50,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } else {
         setUser(null);
       }
+      setLoading(false);
+    });
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const role = await checkUserRole(session.user);
+        setUser({
+          id: session.user.id,
+          email: session.user.email!,
+          role
+        });
+      }
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
