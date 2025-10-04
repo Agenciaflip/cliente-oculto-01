@@ -240,45 +240,49 @@ const Admin = () => {
 
   const loadSalesAnalyses = async () => {
     try {
-      const { data: salesData, error: salesError } = await supabase
-        .from('sales_analysis')
+      const { data: analysisData, error: analysisError } = await supabase
+        .from('analysis_requests')
         .select(`
-          *,
-          analysis_requests!inner(
+          id,
+          company_name,
+          target_phone,
+          persona,
+          user_id,
+          metrics,
+          created_at,
+          profiles!inner(
             id,
-            company_name,
-            target_phone,
-            persona,
-            user_id,
-            profiles!inner(
-              id,
-              full_name
-            )
+            full_name
           )
         `)
+        .eq('status', 'completed')
+        .not('metrics', 'is', null)
         .order('created_at', { ascending: false });
 
-      if (salesError) throw salesError;
+      if (analysisError) throw analysisError;
 
-      const processedSales: SalesAnalysisData[] = (salesData || []).map((sale: any) => ({
-        id: sale.id,
-        analysisId: sale.analysis_id,
-        userEmail: sale.analysis_requests.user_id,
-        userName: sale.analysis_requests.profiles?.full_name || null,
-        companyName: sale.analysis_requests.company_name,
-        overallScore: sale.overall_score,
-        conversionProbability: sale.conversion_probability,
-        methodologies: sale.sales_methodology_detected || [],
-        categories: sale.categories,
-        competitivePositioning: sale.competitive_positioning,
-        recommendedActions: sale.recommended_actions,
-        comparativeAnalysis: sale.comparative_analysis,
-        createdAt: sale.created_at
+      const processedSales: SalesAnalysisData[] = (analysisData || []).map((analysis: any) => ({
+        id: analysis.id,
+        analysisId: analysis.id,
+        userEmail: analysis.user_id,
+        userName: analysis.profiles?.full_name || null,
+        companyName: analysis.company_name,
+        overallScore: analysis.metrics?.overall_score || 0,
+        conversionProbability: analysis.metrics?.customer_experience_score 
+          ? Math.round((analysis.metrics.customer_experience_score / 10) * 100) 
+          : null,
+        methodologies: [],
+        categories: analysis.metrics,
+        competitivePositioning: null,
+        recommendedActions: analysis.metrics?.recommendations || null,
+        comparativeAnalysis: analysis.metrics?.summary || null,
+        createdAt: analysis.created_at
       }));
 
       setSalesAnalyses(processedSales);
     } catch (error) {
       console.error('Erro ao carregar análises de vendas:', error);
+      toast.error('Erro ao carregar análises de vendas');
     }
   };
 
@@ -307,23 +311,27 @@ const Admin = () => {
   };
 
   const getBestCategory = (categories: any) => {
-    if (!categories) return 'N/A';
-    const entries = Object.entries(categories);
+    if (!categories?.communication_quality) return 'N/A';
+    const qualities = categories.communication_quality;
+    const entries = Object.entries(qualities).map(([key, value]) => ({
+      key,
+      score: typeof value === 'number' ? value : 0
+    }));
     if (entries.length === 0) return 'N/A';
-    const best = entries.reduce((prev: any, curr: any) => 
-      curr[1].score > prev[1].score ? curr : prev
-    );
-    return best[0];
+    const best = entries.reduce((prev, curr) => curr.score > prev.score ? curr : prev);
+    return `${best.key} (${best.score}/10)`;
   };
 
   const getWorstCategory = (categories: any) => {
-    if (!categories) return 'N/A';
-    const entries = Object.entries(categories);
+    if (!categories?.communication_quality) return 'N/A';
+    const qualities = categories.communication_quality;
+    const entries = Object.entries(qualities).map(([key, value]) => ({
+      key,
+      score: typeof value === 'number' ? value : 0
+    }));
     if (entries.length === 0) return 'N/A';
-    const worst = entries.reduce((prev: any, curr: any) => 
-      curr[1].score < prev[1].score ? curr : prev
-    );
-    return worst[0];
+    const worst = entries.reduce((prev, curr) => curr.score < prev.score ? curr : prev);
+    return `${worst.key} (${worst.score}/10)`;
   };
 
   const handleViewDetails = (salesAnalysis: SalesAnalysisData) => {
@@ -399,13 +407,22 @@ const Admin = () => {
     : null;
 
   // Insights de categorias
-  const categoryAverages: Record<string, number> = {};
+  const categoryAverages: Record<string, number> = {
+    clarity: 0,
+    empathy: 0,
+    completeness: 0,
+    professionalism: 0
+  };
+  
   if (salesAnalyses.length > 0) {
     salesAnalyses.forEach(sa => {
-      if (sa.categories) {
-        Object.entries(sa.categories).forEach(([key, value]: [string, any]) => {
-          if (!categoryAverages[key]) categoryAverages[key] = 0;
-          categoryAverages[key] += value.score;
+      if (sa.categories?.communication_quality) {
+        const qualities = sa.categories.communication_quality;
+        Object.entries(qualities).forEach(([key, value]) => {
+          if (typeof value === 'number') {
+            if (!categoryAverages[key]) categoryAverages[key] = 0;
+            categoryAverages[key] += value;
+          }
         });
       }
     });
@@ -415,13 +432,10 @@ const Admin = () => {
   }
 
   const categoryLabels: Record<string, string> = {
-    rapport: 'Rapport',
-    discovery: 'Descoberta SPIN/BANT',
-    presentation: 'Apresentação de Soluções',
-    objection_handling: 'Gestão de Objeções',
-    closing: 'Técnicas de Fechamento',
-    professionalism: 'Profissionalismo',
-    customer_experience: 'Experiência do Cliente'
+    clarity: 'Clareza',
+    empathy: 'Empatia',
+    completeness: 'Completude',
+    professionalism: 'Profissionalismo'
   };
 
   const sortedCategories = Object.entries(categoryAverages)
