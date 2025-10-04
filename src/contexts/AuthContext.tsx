@@ -37,9 +37,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Inicializa sessão
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth event:', event);
-      
+    let initialCheckDone = false;
+
+    // Primeiro, pega a sessão inicial
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const role = await checkUserRole(session.user);
         setUser({
@@ -51,21 +52,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(null);
       }
       setLoading(false);
+      initialCheckDone = true;
     });
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const role = await checkUserRole(session.user);
-        setUser({
-          id: session.user.id,
-          email: session.user.email!,
-          role
-        });
+    // Depois, escuta mudanças de auth (login, logout, etc)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth event:', event);
+      
+      // Ignorar o evento INITIAL_SESSION pois já tratamos com getSession()
+      if (event === 'INITIAL_SESSION') {
+        if (!initialCheckDone) {
+          setLoading(false);
+        }
+        return;
       }
-      setLoading(false);
+
+      // Só processar eventos relevantes
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        if (session?.user) {
+          const role = await checkUserRole(session.user);
+          setUser({
+            id: session.user.id,
+            email: session.user.email!,
+            role
+          });
+        } else {
+          setUser(null);
+        }
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> => {
