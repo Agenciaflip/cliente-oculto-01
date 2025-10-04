@@ -14,6 +14,35 @@ export type Database = {
   }
   public: {
     Tables: {
+      analysis_metrics: {
+        Row: {
+          analysis_id: string
+          created_at: string | null
+          experience_score: number | null
+          id: string
+        }
+        Insert: {
+          analysis_id: string
+          created_at?: string | null
+          experience_score?: number | null
+          id?: string
+        }
+        Update: {
+          analysis_id?: string
+          created_at?: string | null
+          experience_score?: number | null
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_metrics_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: true
+            referencedRelation: "analysis_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       analysis_requests: {
         Row: {
           analysis_depth: string
@@ -121,7 +150,10 @@ export type Database = {
         Row: {
           created_at: string
           credits_remaining: number
+          full_name: string | null
           id: string
+          last_activity_at: string | null
+          plan: string | null
           stripe_customer_id: string | null
           subscription_tier: Database["public"]["Enums"]["subscription_tier"]
           updated_at: string
@@ -129,7 +161,10 @@ export type Database = {
         Insert: {
           created_at?: string
           credits_remaining?: number
+          full_name?: string | null
           id: string
+          last_activity_at?: string | null
+          plan?: string | null
           stripe_customer_id?: string | null
           subscription_tier?: Database["public"]["Enums"]["subscription_tier"]
           updated_at?: string
@@ -137,7 +172,10 @@ export type Database = {
         Update: {
           created_at?: string
           credits_remaining?: number
+          full_name?: string | null
           id?: string
+          last_activity_at?: string | null
+          plan?: string | null
           stripe_customer_id?: string | null
           subscription_tier?: Database["public"]["Enums"]["subscription_tier"]
           updated_at?: string
