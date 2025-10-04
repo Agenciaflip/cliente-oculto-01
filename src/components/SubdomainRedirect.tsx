@@ -1,26 +1,22 @@
 import { useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useSubdomainDetection } from "@/hooks/useSubdomainDetection";
 
 export const SubdomainRedirect = () => {
-  const subdomain = useSubdomainDetection();
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
-    // Só redireciona se estiver na página raiz
-    if (location.pathname !== '/') {
-      return;
-    }
+    // Só redireciona se estiver na raiz e o hostname tiver "app."
+    if (location.pathname !== '/') return;
 
-    // Redireciona baseado no subdomínio
-    if (subdomain === 'admin') {
-      navigate('/admin', { replace: true });
-    } else if (subdomain === 'app') {
+    const hostname = window.location.hostname;
+    
+    // Redireciona app.agenciaflip.com.br para /dashboard
+    if (hostname.startsWith('app.')) {
       navigate('/dashboard', { replace: true });
     }
-    // Se for 'root', não faz nada (mantém na landing page)
-  }, [subdomain, navigate, location.pathname]);
+    // Para o domínio raiz, não faz nada (mostra landing page)
+  }, [navigate, location.pathname]);
 
   return null;
 };

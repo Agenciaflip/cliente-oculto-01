@@ -21,7 +21,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<{ success: boolean; user?: User }>;
   logout: () => void;
 }
 
@@ -45,7 +45,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setLoading(false);
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<{ success: boolean; user?: User }> => {
     // Simula delay de rede para melhor UX
     await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -58,10 +58,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       setUser(authenticatedUser);
       sessionStorage.setItem('auth_user', JSON.stringify(authenticatedUser));
-      return true;
+      return { success: true, user: authenticatedUser };
     }
 
-    return false;
+    return { success: false };
   };
 
   const logout = () => {

@@ -31,7 +31,7 @@ const Auth = () => {
     const password = formData.get("password") as string;
 
     try {
-      const success = await login(email, password);
+      const { success, user: authenticatedUser } = await login(email, password);
 
       if (!success) {
         toast({
@@ -42,12 +42,19 @@ const Auth = () => {
         return;
       }
 
+      // Redirecionamento inteligente baseado no role
+      const isAdmin = authenticatedUser?.role === 'admin';
+      const redirectPath = isAdmin ? '/admin' : '/dashboard';
+      const welcomeMessage = isAdmin 
+        ? 'Bem-vindo ao painel gerencial!' 
+        : 'Bem-vindo ao dashboard!';
+
       toast({
         title: "Login realizado!",
-        description: "Redirecionando para o dashboard...",
+        description: welcomeMessage,
       });
 
-      navigate("/dashboard");
+      navigate(redirectPath);
     } catch (error: any) {
       toast({
         title: "Erro ao fazer login",
