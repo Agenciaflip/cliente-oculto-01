@@ -8,14 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer";
+import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
 import { supabase } from "@/integrations/supabase/client";
-import { LogOut, Loader2, Users, BarChart3, Activity, CheckCircle, Search, Plus } from "lucide-react";
+import { LogOut, Loader2, Users, BarChart3, Activity, CheckCircle, Search, Plus, TrendingUp, Target, Award, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
+import { SalesAnalysis } from "@/components/SalesAnalysis";
 
 // Interfaces e tipos
 interface DataTableSearchableColumn<TData> {
@@ -58,6 +61,22 @@ interface AnalysisData {
   duration: string | null;
 }
 
+interface SalesAnalysisData {
+  id: string;
+  analysisId: string;
+  userEmail: string;
+  userName: string | null;
+  companyName: string | null;
+  overallScore: number;
+  conversionProbability: number | null;
+  methodologies: string[];
+  categories: any;
+  competitivePositioning: string | null;
+  recommendedActions: string[] | null;
+  comparativeAnalysis: string | null;
+  createdAt: string;
+}
+
 const Admin = () => {
   const { user, logout } = useAuth();
   const { isAdmin, loading: adminLoading } = useAdminCheck();
@@ -65,6 +84,7 @@ const Admin = () => {
   
   const [users, setUsers] = useState<UserData[]>([]);
   const [analyses, setAnalyses] = useState<AnalysisData[]>([]);
+  const [salesAnalyses, setSalesAnalyses] = useState<SalesAnalysisData[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Filtros
@@ -73,16 +93,24 @@ const Admin = () => {
   const [analysisSearch, setAnalysisSearch] = useState("");
   const [analysisStatusFilter, setAnalysisStatusFilter] = useState("all");
   const [analysisPersonaFilter, setAnalysisPersonaFilter] = useState("all");
+  const [salesSearch, setSalesSearch] = useState("");
+  const [salesScoreFilter, setSalesScoreFilter] = useState("all");
+  const [salesMethodologyFilter, setSalesMethodologyFilter] = useState("all");
   
   // Dialog de adicionar créditos
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [creditsToAdd, setCreditsToAdd] = useState<number>(0);
   const [addingCredits, setAddingCredits] = useState(false);
+  
+  // Drawer de detalhes da análise de vendas
+  const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
+  const [selectedSalesAnalysis, setSelectedSalesAnalysis] = useState<any | null>(null);
 
   useEffect(() => {
     if (!adminLoading && isAdmin) {
       loadData();
+      loadSalesAnalyses();
     }
   }, [isAdmin, adminLoading]);
 
@@ -210,6 +238,50 @@ const Admin = () => {
     }
   };
 
+  const loadSalesAnalyses = async () => {
+    try {
+      const { data: salesData, error: salesError } = await supabase
+        .from('sales_analysis')
+        .select(`
+          *,
+          analysis_requests!inner(
+            id,
+            company_name,
+            target_phone,
+            persona,
+            user_id,
+            profiles!inner(
+              id,
+              full_name
+            )
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (salesError) throw salesError;
+
+      const processedSales: SalesAnalysisData[] = (salesData || []).map((sale: any) => ({
+        id: sale.id,
+        analysisId: sale.analysis_id,
+        userEmail: sale.analysis_requests.user_id,
+        userName: sale.analysis_requests.profiles?.full_name || null,
+        companyName: sale.analysis_requests.company_name,
+        overallScore: sale.overall_score,
+        conversionProbability: sale.conversion_probability,
+        methodologies: sale.sales_methodology_detected || [],
+        categories: sale.categories,
+        competitivePositioning: sale.competitive_positioning,
+        recommendedActions: sale.recommended_actions,
+        comparativeAnalysis: sale.comparative_analysis,
+        createdAt: sale.created_at
+      }));
+
+      setSalesAnalyses(processedSales);
+    } catch (error) {
+      console.error('Erro ao carregar análises de vendas:', error);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { label: string; className: string }> = {
       pending: { label: 'Pendente', className: 'bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20' },
@@ -220,6 +292,52 @@ const Admin = () => {
 
     const config = statusConfig[status] || statusConfig.pending;
     return <Badge className={config.className}>{config.label}</Badge>;
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 8) return 'text-green-600';
+    if (score >= 6) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
+  const getScoreBadge = (score: number) => {
+    if (score >= 8) return <Badge className="bg-green-500/10 text-green-600 hover:bg-green-500/20">Excelente</Badge>;
+    if (score >= 6) return <Badge className="bg-yellow-500/10 text-yellow-600 hover:bg-yellow-500/20">Bom</Badge>;
+    return <Badge className="bg-red-500/10 text-red-600 hover:bg-red-500/20">Precisa Melhorar</Badge>;
+  };
+
+  const getBestCategory = (categories: any) => {
+    if (!categories) return 'N/A';
+    const entries = Object.entries(categories);
+    if (entries.length === 0) return 'N/A';
+    const best = entries.reduce((prev: any, curr: any) => 
+      curr[1].score > prev[1].score ? curr : prev
+    );
+    return best[0];
+  };
+
+  const getWorstCategory = (categories: any) => {
+    if (!categories) return 'N/A';
+    const entries = Object.entries(categories);
+    if (entries.length === 0) return 'N/A';
+    const worst = entries.reduce((prev: any, curr: any) => 
+      curr[1].score < prev[1].score ? curr : prev
+    );
+    return worst[0];
+  };
+
+  const handleViewDetails = (salesAnalysis: SalesAnalysisData) => {
+    const formattedAnalysis = {
+      overall_score: salesAnalysis.overallScore,
+      conversion_probability: salesAnalysis.conversionProbability,
+      categories: salesAnalysis.categories,
+      competitive_positioning: salesAnalysis.competitivePositioning,
+      sales_methodology_detected: salesAnalysis.methodologies,
+      recommended_actions: salesAnalysis.recommendedActions,
+      comparative_analysis: salesAnalysis.comparativeAnalysis
+    };
+    setSelectedSalesAnalysis(formattedAnalysis);
+    setDetailsDrawerOpen(true);
   };
 
   // Filtros aplicados
@@ -238,6 +356,18 @@ const Admin = () => {
     return matchesSearch && matchesStatus && matchesPersona;
   });
 
+  const filteredSalesAnalyses = salesAnalyses.filter(sa => {
+    const matchesSearch = sa.companyName?.toLowerCase().includes(salesSearch.toLowerCase()) ||
+                         sa.userName?.toLowerCase().includes(salesSearch.toLowerCase());
+    const matchesScore = salesScoreFilter === 'all' || 
+      (salesScoreFilter === 'high' && sa.overallScore >= 8) ||
+      (salesScoreFilter === 'medium' && sa.overallScore >= 6 && sa.overallScore < 8) ||
+      (salesScoreFilter === 'low' && sa.overallScore < 6);
+    const matchesMethodology = salesMethodologyFilter === 'all' || 
+      sa.methodologies.includes(salesMethodologyFilter);
+    return matchesSearch && matchesScore && matchesMethodology;
+  });
+
   // Métricas
   const totalUsers = users.length;
   const totalAnalyses = analyses.length;
@@ -247,6 +377,56 @@ const Admin = () => {
   const successRate = totalAnalyses > 0 
     ? Math.round((completedAnalyses / (completedAnalyses + failedAnalyses)) * 100) 
     : 0;
+
+  // Métricas de Vendas
+  const avgScore = salesAnalyses.length > 0 
+    ? salesAnalyses.reduce((sum, sa) => sum + sa.overallScore, 0) / salesAnalyses.length 
+    : 0;
+  const avgConversion = salesAnalyses.length > 0
+    ? salesAnalyses.reduce((sum, sa) => sum + (sa.conversionProbability || 0), 0) / salesAnalyses.length
+    : 0;
+  
+  const methodologyCount = salesAnalyses.reduce((acc, sa) => {
+    sa.methodologies.forEach(m => {
+      acc[m] = (acc[m] || 0) + 1;
+    });
+    return acc;
+  }, {} as Record<string, number>);
+  
+  const mostUsedMethodology = Object.entries(methodologyCount).sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
+  const bestPerformer = salesAnalyses.length > 0
+    ? salesAnalyses.reduce((best, curr) => curr.overallScore > best.overallScore ? curr : best)
+    : null;
+
+  // Insights de categorias
+  const categoryAverages: Record<string, number> = {};
+  if (salesAnalyses.length > 0) {
+    salesAnalyses.forEach(sa => {
+      if (sa.categories) {
+        Object.entries(sa.categories).forEach(([key, value]: [string, any]) => {
+          if (!categoryAverages[key]) categoryAverages[key] = 0;
+          categoryAverages[key] += value.score;
+        });
+      }
+    });
+    Object.keys(categoryAverages).forEach(key => {
+      categoryAverages[key] = categoryAverages[key] / salesAnalyses.length;
+    });
+  }
+
+  const categoryLabels: Record<string, string> = {
+    rapport: 'Rapport',
+    discovery: 'Descoberta SPIN/BANT',
+    presentation: 'Apresentação de Soluções',
+    objection_handling: 'Gestão de Objeções',
+    closing: 'Técnicas de Fechamento',
+    professionalism: 'Profissionalismo',
+    customer_experience: 'Experiência do Cliente'
+  };
+
+  const sortedCategories = Object.entries(categoryAverages)
+    .map(([key, avg]) => ({ key, avg, label: categoryLabels[key] || key }))
+    .sort((a, b) => b.avg - a.avg);
 
   if (adminLoading || loading) {
     return (
@@ -326,6 +506,7 @@ const Admin = () => {
           <TabsList>
             <TabsTrigger value="users">Usuários</TabsTrigger>
             <TabsTrigger value="analyses">Análises</TabsTrigger>
+            <TabsTrigger value="sales">Análises de Vendas</TabsTrigger>
           </TabsList>
 
           {/* Tab: Usuários */}
@@ -445,6 +626,239 @@ const Admin = () => {
             </Card>
           </TabsContent>
 
+          {/* Tab: Análises de Vendas */}
+          <TabsContent value="sales" className="space-y-4">
+            {/* Cards de Métricas de Vendas */}
+            <div className="grid gap-4 md:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Nota Média Geral</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{avgScore.toFixed(1)}/10</div>
+                  <Progress value={(avgScore / 10) * 100} className="mt-2" />
+                  <p className="text-xs text-muted-foreground mt-1">De todas as análises</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Taxa Conv. Média</CardTitle>
+                  <Target className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{avgConversion.toFixed(0)}%</div>
+                  <Progress value={avgConversion} className="mt-2" />
+                  <p className="text-xs text-muted-foreground mt-1">Probabilidade de conversão</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Metodologia + Usada</CardTitle>
+                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-xl font-bold truncate">{mostUsedMethodology[0]}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {mostUsedMethodology[1]} vezes ({salesAnalyses.length > 0 ? Math.round((mostUsedMethodology[1] / salesAnalyses.length) * 100) : 0}%)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Melhor Performer</CardTitle>
+                  <Award className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-sm font-bold truncate">{bestPerformer?.userName || bestPerformer?.userEmail || 'N/A'}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Nota: {bestPerformer ? bestPerformer.overallScore.toFixed(1) : 0}/10</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Card de Insights */}
+            {sortedCategories.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>📈 Insights de Performance</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div>
+                    <h4 className="font-semibold mb-3 text-sm">Top 3 Categorias com Melhor Performance:</h4>
+                    <div className="space-y-2">
+                      {sortedCategories.slice(0, 3).map((cat, idx) => (
+                        <div key={cat.key} className="flex items-center justify-between">
+                          <span className="text-sm">{idx + 1}. {cat.label}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-green-600">{cat.avg.toFixed(1)}/10</span>
+                            <Progress value={(cat.avg / 10) * 100} className="w-24 h-2" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-3 text-sm">Top 3 Categorias que Precisam Melhorar:</h4>
+                    <div className="space-y-2">
+                      {sortedCategories.slice(-3).reverse().map((cat, idx) => (
+                        <div key={cat.key} className="flex items-center justify-between">
+                          <span className="text-sm">{idx + 1}. {cat.label}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-yellow-600">{cat.avg.toFixed(1)}/10</span>
+                            <Progress value={(cat.avg / 10) * 100} className="w-24 h-2" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-3 text-sm">📚 Distribuição de Metodologias:</h4>
+                    <div className="space-y-2">
+                      {Object.entries(methodologyCount)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 5)
+                        .map(([method, count]) => {
+                          const percentage = salesAnalyses.length > 0 ? (count / salesAnalyses.length) * 100 : 0;
+                          return (
+                            <div key={method} className="space-y-1">
+                              <div className="flex items-center justify-between text-sm">
+                                <span>{method}</span>
+                                <span className="text-muted-foreground">{percentage.toFixed(0)}%</span>
+                              </div>
+                              <Progress value={percentage} className="h-2" />
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Tabela de Análises de Vendas */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Análises de Vendas Completas</CardTitle>
+                  <div className="flex gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Buscar empresa ou usuário..."
+                        className="pl-8 w-64"
+                        value={salesSearch}
+                        onChange={(e) => setSalesSearch(e.target.value)}
+                      />
+                    </div>
+                    <Select value={salesScoreFilter} onValueChange={setSalesScoreFilter}>
+                      <SelectTrigger className="w-32">
+                        <SelectValue placeholder="Nota" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        <SelectItem value="high">Alta (8-10)</SelectItem>
+                        <SelectItem value="medium">Média (6-8)</SelectItem>
+                        <SelectItem value="low">Baixa (&lt;6)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={salesMethodologyFilter} onValueChange={setSalesMethodologyFilter}>
+                      <SelectTrigger className="w-40">
+                        <SelectValue placeholder="Metodologia" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        {Object.keys(methodologyCount).map(method => (
+                          <SelectItem key={method} value={method}>{method}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Usuário</TableHead>
+                      <TableHead>Empresa</TableHead>
+                      <TableHead>Nota Geral</TableHead>
+                      <TableHead>Conv. %</TableHead>
+                      <TableHead>Metodologias</TableHead>
+                      <TableHead>Melhor Cat.</TableHead>
+                      <TableHead>Pior Cat.</TableHead>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredSalesAnalyses.map((salesAnalysis) => (
+                      <TableRow key={salesAnalysis.id}>
+                        <TableCell className="font-mono text-xs">{salesAnalysis.id.substring(0, 8)}</TableCell>
+                        <TableCell className="text-sm">{salesAnalysis.userName || salesAnalysis.userEmail.substring(0, 20)}</TableCell>
+                        <TableCell>{salesAnalysis.companyName || 'N/A'}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className={`font-bold ${getScoreColor(salesAnalysis.overallScore)}`}>
+                              {salesAnalysis.overallScore.toFixed(1)}
+                            </span>
+                            {getScoreBadge(salesAnalysis.overallScore)}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{salesAnalysis.conversionProbability || 0}%</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1 max-w-[200px]">
+                            {salesAnalysis.methodologies.slice(0, 2).map((method, idx) => (
+                              <Badge key={idx} variant="secondary" className="text-xs">
+                                {method.split(' ')[0]}
+                              </Badge>
+                            ))}
+                            {salesAnalysis.methodologies.length > 2 && (
+                              <Badge variant="secondary" className="text-xs">+{salesAnalysis.methodologies.length - 2}</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-green-600">
+                          {categoryLabels[getBestCategory(salesAnalysis.categories)] || getBestCategory(salesAnalysis.categories)}
+                        </TableCell>
+                        <TableCell className="text-sm text-red-600">
+                          {categoryLabels[getWorstCategory(salesAnalysis.categories)] || getWorstCategory(salesAnalysis.categories)}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {format(new Date(salesAnalysis.createdAt), "dd/MM HH:mm", { locale: ptBR })}
+                        </TableCell>
+                        <TableCell>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleViewDetails(salesAnalysis)}
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
+                            Ver
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredSalesAnalyses.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={10} className="text-center text-muted-foreground">
+                          Nenhuma análise de vendas encontrada
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Tab: Análises */}
           <TabsContent value="analyses" className="space-y-4">
             <Card>
@@ -535,6 +949,21 @@ const Admin = () => {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Drawer de Detalhes da Análise de Vendas */}
+      <Drawer open={detailsDrawerOpen} onOpenChange={setDetailsDrawerOpen}>
+        <DrawerContent className="max-h-[90vh]">
+          <DrawerHeader>
+            <DrawerTitle>Detalhes da Análise de Vendas</DrawerTitle>
+            <DrawerDescription>Visualização completa da análise de performance de vendas</DrawerDescription>
+          </DrawerHeader>
+          <div className="overflow-y-auto p-6">
+            {selectedSalesAnalysis && (
+              <SalesAnalysis analysis={selectedSalesAnalysis} />
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 };
