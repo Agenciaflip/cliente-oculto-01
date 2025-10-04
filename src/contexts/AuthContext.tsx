@@ -39,47 +39,67 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     let initialCheckDone = false;
 
-    // Primeiro, pega a sessão inicial
+    // Helper: atualiza usuário rapidamente a partir da sessão (sem checar role ainda)
+    const setUserFromSession = (session: any) => {
+      const sUser = session?.user;
+      if (!sUser) {
+        setUser(null);
+        return;
+      }
+      setUser((prev) => {
+        if (prev?.id === sUser.id && prev?.email === sUser.email) return prev;
+        return { id: sUser.id, email: sUser.email!, role: prev?.role ?? 'user' };
+      });
+    };
+
+    // Listener de auth (somente updates síncronos aqui!)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('Auth event:', event);
+
+      // Ignorar o INITIAL_SESSION (tratado no getSession abaixo)
+      if (event === 'INITIAL_SESSION') {
+        if (!initialCheckDone) setLoading(false);
+        return;
+      }
+
+      // Processar apenas eventos relevantes
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        if (session?.user) {
+          // Atualiza usuário imediatamente
+          setUserFromSession(session);
+          // Buscar role de forma assíncrona e DEFERIDA para evitar deadlocks
+          setTimeout(async () => {
+            try {
+              const role = await checkUserRole(session.user);
+              setUser((u) => (u && u.id === session.user!.id ? { ...u, role } : u));
+            } catch (e) {
+              console.error('Erro ao verificar role (listener):', e);
+            }
+          }, 0);
+        } else {
+          setUser(null);
+        }
+      }
+    });
+
+    // Sessão inicial
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        const role = await checkUserRole(session.user);
-        setUser({
-          id: session.user.id,
-          email: session.user.email!,
-          role
-        });
+        setUserFromSession(session);
+        // Checa role de forma deferida
+        setTimeout(async () => {
+          try {
+            const role = await checkUserRole(session.user);
+            setUser((u) => (u && u.id === session.user!.id ? { ...u, role } : u));
+          } catch (e) {
+            console.error('Erro ao verificar role (sessão inicial):', e);
+          }
+        }, 0);
       } else {
         setUser(null);
       }
       setLoading(false);
       initialCheckDone = true;
-    });
-
-    // Depois, escuta mudanças de auth (login, logout, etc)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth event:', event);
-      
-      // Ignorar o evento INITIAL_SESSION pois já tratamos com getSession()
-      if (event === 'INITIAL_SESSION') {
-        if (!initialCheckDone) {
-          setLoading(false);
-        }
-        return;
-      }
-
-      // Só processar eventos relevantes
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        if (session?.user) {
-          const role = await checkUserRole(session.user);
-          setUser({
-            id: session.user.id,
-            email: session.user.email!,
-            role
-          });
-        } else {
-          setUser(null);
-        }
-      }
     });
 
     return () => {
