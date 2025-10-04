@@ -182,6 +182,53 @@ export type Database = {
         }
         Relationships: []
       }
+      sales_analysis: {
+        Row: {
+          analysis_id: string
+          categories: Json
+          comparative_analysis: string | null
+          competitive_positioning: string | null
+          conversion_probability: number | null
+          created_at: string | null
+          id: string
+          overall_score: number
+          recommended_actions: string[] | null
+          sales_methodology_detected: string[] | null
+        }
+        Insert: {
+          analysis_id: string
+          categories: Json
+          comparative_analysis?: string | null
+          competitive_positioning?: string | null
+          conversion_probability?: number | null
+          created_at?: string | null
+          id?: string
+          overall_score: number
+          recommended_actions?: string[] | null
+          sales_methodology_detected?: string[] | null
+        }
+        Update: {
+          analysis_id?: string
+          categories?: Json
+          comparative_analysis?: string | null
+          competitive_positioning?: string | null
+          conversion_probability?: number | null
+          created_at?: string | null
+          id?: string
+          overall_score?: number
+          recommended_actions?: string[] | null
+          sales_methodology_detected?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_analysis_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: true
+            referencedRelation: "analysis_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscriptions: {
         Row: {
           created_at: string

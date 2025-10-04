@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.admin-promote-user]
 verify_jwt = false
+
+[functions.analyze-sales-conversation]
+verify_jwt = false

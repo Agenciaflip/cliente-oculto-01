@@ -1,8 +1,13 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SalesAnalysisTab } from "@/components/SalesAnalysisTab";
 import { LogOut, Plus, Eye } from "lucide-react";
 
 interface Analysis {
@@ -16,36 +21,41 @@ interface Analysis {
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const [profile, setProfile] = useState<any>(null);
+  const [analyses, setAnalyses] = useState<Analysis[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Dados mockados para demonstração
-  const profile = {
-    subscription_tier: 'premium',
-    credits_remaining: 10,
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+  }, [user]);
+
+  const loadData = async () => {
+    try {
+      // Carregar perfil
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user?.id)
+        .single();
+
+      setProfile(profileData);
+
+      // Carregar análises
+      const { data: analysesData } = await supabase
+        .from('analysis_requests')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false });
+
+      setAnalyses(analysesData || []);
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error);
+    } finally {
+      setLoading(false);
+    }
   };
-
-  const analyses: Analysis[] = [
-    {
-      id: '1',
-      target_phone: '+55 11 98765-4321',
-      company_name: 'Exemplo Corp',
-      status: 'completed',
-      created_at: new Date(Date.now() - 86400000).toISOString(),
-    },
-    {
-      id: '2',
-      target_phone: '+55 11 91234-5678',
-      company_name: 'Teste Ltda',
-      status: 'analyzing',
-      created_at: new Date(Date.now() - 172800000).toISOString(),
-    },
-    {
-      id: '3',
-      target_phone: '+55 11 99876-5432',
-      company_name: 'Demo Inc',
-      status: 'pending',
-      created_at: new Date(Date.now() - 259200000).toISOString(),
-    },
-  ];
 
   const handleSignOut = () => {
     logout();
@@ -78,8 +88,22 @@ const Dashboard = () => {
     );
   };
 
-  if (!user) {
-    return null;
+  if (!user || loading) {
+    return (
+      <div className="min-h-screen bg-gradient-subtle">
+        <header className="border-b bg-card shadow-soft">
+          <div className="container mx-auto px-4 py-4">
+            <Skeleton className="h-8 w-64" />
+          </div>
+        </header>
+        <main className="container mx-auto px-4 py-8">
+          <div className="space-y-4">
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        </main>
+      </div>
+    );
   }
 
   return (
@@ -94,11 +118,11 @@ const Dashboard = () => {
           <div className="flex items-center gap-4">
             <div className="text-right">
               <p className="text-sm text-muted-foreground">Plano</p>
-              <p className="font-medium capitalize">{profile.subscription_tier}</p>
+              <p className="font-medium capitalize">{profile?.plan || 'free'}</p>
             </div>
             <div className="text-right">
               <p className="text-sm text-muted-foreground">Créditos</p>
-              <p className="font-medium">{profile.credits_remaining}</p>
+              <p className="font-medium">{profile?.credits_remaining || 0}</p>
             </div>
             <Button variant="outline" size="sm" onClick={handleSignOut}>
               <LogOut className="h-4 w-4 mr-2" />
@@ -138,70 +162,83 @@ const Dashboard = () => {
             <CardHeader>
               <CardTitle>Créditos Disponíveis</CardTitle>
               <CardDescription className="text-3xl font-bold">
-                {profile.credits_remaining}
+                {profile?.credits_remaining || 0}
               </CardDescription>
             </CardHeader>
           </Card>
         </div>
 
-        {/* Recent Analyses */}
-        <Card className="shadow-medium">
-          <CardHeader>
-            <CardTitle>Análises Recentes</CardTitle>
-            <CardDescription>
-              Suas últimas análises de cliente oculto
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {analyses.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-muted-foreground mb-4">
-                  Nenhuma análise ainda
-                </p>
-                <Button onClick={() => navigate("/dashboard/new")}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Criar Primeira Análise
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {analyses.map((analysis) => (
-                  <div
-                    key={analysis.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
-                    onClick={() => navigate(`/dashboard/analysis/${analysis.id}`)}
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="font-medium">{analysis.target_phone}</p>
-                        {analysis.company_name && (
-                          <span className="text-sm text-muted-foreground">
-                            • {analysis.company_name}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {new Date(analysis.created_at).toLocaleDateString('pt-BR', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {getStatusBadge(analysis.status)}
-                      <Button variant="ghost" size="sm">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </div>
+        {/* Tabs */}
+        <Tabs defaultValue="analyses" className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
+            <TabsTrigger value="analyses">Minhas Análises</TabsTrigger>
+            <TabsTrigger value="sales">Análise de Vendas</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="analyses">
+            <Card className="shadow-medium">
+              <CardHeader>
+                <CardTitle>Análises Recentes</CardTitle>
+                <CardDescription>
+                  Suas últimas análises de cliente oculto
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {analyses.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-muted-foreground mb-4">
+                      Nenhuma análise ainda
+                    </p>
+                    <Button onClick={() => navigate("/dashboard/new")}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Criar Primeira Análise
+                    </Button>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                ) : (
+                  <div className="space-y-4">
+                    {analyses.map((analysis) => (
+                      <div
+                        key={analysis.id}
+                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
+                        onClick={() => navigate(`/dashboard/analysis/${analysis.id}`)}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-medium">{analysis.target_phone}</p>
+                            {analysis.company_name && (
+                              <span className="text-sm text-muted-foreground">
+                                • {analysis.company_name}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(analysis.created_at).toLocaleDateString('pt-BR', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {getStatusBadge(analysis.status)}
+                          <Button variant="ghost" size="sm">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="sales">
+            <SalesAnalysisTab analyses={analyses} userId={user.id} />
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );
