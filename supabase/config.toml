@@ -11,3 +11,9 @@ verify_jwt = false
 
 [functions.monitor-conversations]
 verify_jwt = false
+
+[functions.admin-reset-users]
+verify_jwt = false
+
+[functions.admin-promote-user]
+verify_jwt = false
