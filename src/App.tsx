@@ -9,6 +9,8 @@ import { SubdomainRedirect } from "./components/SubdomainRedirect";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
+import NewAnalysis from "./pages/NewAnalysis";
+import AnalysisDetails from "./pages/AnalysisDetails";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
 import AdminTools from "./pages/AdminTools";
@@ -29,6 +31,16 @@ const App = () => (
             <Route path="/dashboard" element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/dashboard/new" element={
+              <ProtectedRoute>
+                <NewAnalysis />
+              </ProtectedRoute>
+            } />
+            <Route path="/dashboard/analysis/:id" element={
+              <ProtectedRoute>
+                <AnalysisDetails />
               </ProtectedRoute>
             } />
             <Route path="/admin" element={
