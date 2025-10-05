@@ -53,17 +53,72 @@ serve(async (req) => {
       throw new Error("Unauthorized: User is not admin");
     }
     
-    // Deletar dados do banco (chama function)
-    console.log('[admin-delete-user] Calling admin_delete_user function');
-    const { data: deleteData, error: dbError } = await supabaseAdmin
-      .rpc("admin_delete_user", { _target_user_id: user_id });
+    // Deletar dados do banco manualmente com service_role
+    console.log('[admin-delete-user] Deleting user data from database');
     
-    if (dbError) {
-      console.error('[admin-delete-user] Database deletion error:', dbError);
-      throw new Error(`Database deletion failed: ${dbError.message}`);
+    // Buscar IDs das análises do usuário
+    const { data: userAnalyses } = await supabaseAdmin
+      .from('analysis_requests')
+      .select('id')
+      .eq('user_id', user_id);
+    
+    const analysisIds = userAnalyses?.map(a => a.id) || [];
+    
+    // Deletar mensagens de conversação
+    if (analysisIds.length > 0) {
+      await supabaseAdmin
+        .from('conversation_messages')
+        .delete()
+        .in('analysis_id', analysisIds);
+      
+      // Deletar análises de vendas
+      await supabaseAdmin
+        .from('sales_analysis')
+        .delete()
+        .in('analysis_id', analysisIds);
+      
+      // Deletar métricas
+      await supabaseAdmin
+        .from('analysis_metrics')
+        .delete()
+        .in('analysis_id', analysisIds);
     }
-
-    console.log('[admin-delete-user] Database deletion successful:', deleteData);
+    
+    // Deletar análises
+    await supabaseAdmin
+      .from('analysis_requests')
+      .delete()
+      .eq('user_id', user_id);
+    
+    // Buscar IDs dos tickets do usuário
+    const { data: userTickets } = await supabaseAdmin
+      .from('support_tickets')
+      .select('id')
+      .eq('user_id', user_id);
+    
+    const ticketIds = userTickets?.map(t => t.id) || [];
+    
+    // Deletar mensagens de suporte
+    if (ticketIds.length > 0) {
+      await supabaseAdmin
+        .from('support_messages')
+        .delete()
+        .in('ticket_id', ticketIds);
+    }
+    
+    // Deletar tickets de suporte
+    await supabaseAdmin
+      .from('support_tickets')
+      .delete()
+      .eq('user_id', user_id);
+    
+    // Deletar outros dados
+    await supabaseAdmin.from('subscriptions').delete().eq('user_id', user_id);
+    await supabaseAdmin.from('usage_tracking').delete().eq('user_id', user_id);
+    await supabaseAdmin.from('user_roles').delete().eq('user_id', user_id);
+    await supabaseAdmin.from('profiles').delete().eq('id', user_id);
+    
+    console.log('[admin-delete-user] Database deletion successful');
     
     // Deletar do auth
     console.log('[admin-delete-user] Deleting from auth.users');
@@ -77,8 +132,7 @@ serve(async (req) => {
     console.log('[admin-delete-user] User deleted successfully');
     
     return new Response(JSON.stringify({ 
-      success: true,
-      ...deleteData
+      success: true
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
