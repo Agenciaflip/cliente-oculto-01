@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { SalesAnalysis } from "@/components/SalesAnalysis";
 
 const AnalysisDetails = () => {
   const { id } = useParams();
@@ -16,6 +17,8 @@ const AnalysisDetails = () => {
   const [messages, setMessages] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [salesAnalysis, setSalesAnalysis] = useState<any>(null);
+  const [generatingSales, setGeneratingSales] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -47,6 +50,15 @@ const AnalysisDetails = () => {
         .order("created_at", { ascending: true });
 
       setMessages(messagesData || []);
+
+      // Buscar análise de vendas
+      const { data: salesData } = await supabase
+        .from("sales_analysis")
+        .select("*")
+        .eq("analysis_id", id)
+        .maybeSingle();
+
+      setSalesAnalysis(salesData);
       setIsLoading(false);
     };
 
@@ -81,6 +93,19 @@ const AnalysisDetails = () => {
           setMessages(prev => [...prev, payload.new]);
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'sales_analysis',
+          filter: `analysis_id=eq.${id}`
+        },
+        (payload) => {
+          console.log('Sales analysis updated:', payload);
+          setSalesAnalysis(payload.new);
+        }
+      )
       .subscribe();
 
     return () => {
@@ -113,6 +138,30 @@ const AnalysisDetails = () => {
       });
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleGenerateSalesAnalysis = async () => {
+    setGeneratingSales(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-sales-conversation', {
+        body: { analysis_id: id }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "✅ Análise gerada com sucesso!",
+        description: "A análise de vendas está pronta."
+      });
+    } catch (error: any) {
+      toast({
+        title: "❌ Erro ao gerar análise",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setGeneratingSales(false);
     }
   };
 
@@ -735,6 +784,39 @@ const AnalysisDetails = () => {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* 🆕 Seção: Análise de Vendas */}
+        {analysis.status === 'completed' && (
+          <Card className="shadow-medium mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>📊 Análise de Vendas</span>
+                {!salesAnalysis && (
+                  <Button
+                    onClick={handleGenerateSalesAnalysis}
+                    disabled={generatingSales}
+                    size="sm"
+                  >
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    {generatingSales ? 'Gerando...' : 'Gerar Análise de Vendas'}
+                  </Button>
+                )}
+              </CardTitle>
+              <CardDescription>
+                Avaliação detalhada do desempenho comercial
+              </CardDescription>
+            </CardHeader>
+            {salesAnalysis ? (
+              <CardContent>
+                <SalesAnalysis analysis={salesAnalysis} />
+              </CardContent>
+            ) : (
+              <CardContent className="py-8 text-center text-muted-foreground">
+                <p>Clique no botão acima para gerar a análise de vendas</p>
+              </CardContent>
+            )}
+          </Card>
         )}
       </main>
     </div>
