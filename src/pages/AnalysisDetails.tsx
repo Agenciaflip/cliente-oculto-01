@@ -10,7 +10,11 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
 
-const AnalysisDetails = () => {
+interface AnalysisDetailsProps {
+  isAdminView?: boolean;
+}
+
+const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [analysis, setAnalysis] = useState<any>(null);
@@ -308,11 +312,11 @@ const AnalysisDetails = () => {
         <div className="container mx-auto px-4 py-4">
           <Button
             variant="ghost"
-            onClick={() => navigate("/dashboard")}
+            onClick={() => navigate(isAdminView ? "/admin" : "/dashboard")}
             className="mb-2"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Voltar ao Dashboard
+            {isAdminView ? "Voltar ao Painel Admin" : "Voltar ao Dashboard"}
           </Button>
           <div className="flex items-center justify-between">
             <div>

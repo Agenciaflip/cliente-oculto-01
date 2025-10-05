@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
 import { supabase } from "@/integrations/supabase/client";
-import { LogOut, Loader2, Users, BarChart3, Activity, CheckCircle, Search, Plus, TrendingUp, Target, Award, Eye, MessageSquare, Send, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { LogOut, Loader2, Users, BarChart3, Activity, CheckCircle, Search, Plus, TrendingUp, Target, Award, Eye, MessageSquare, Send, Clock, AlertCircle, CheckCircle2, Trash2, Shield, ShieldOff } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -45,6 +45,7 @@ interface UserData {
   successRate: number;
   lastActivity: string | null;
   createdAt: string;
+  isAdmin: boolean;
 }
 
 interface AnalysisData {
@@ -142,6 +143,31 @@ const Admin = () => {
     }
   }, [isAdmin, adminLoading, supportStatusFilter]);
 
+  // Realtime updates para análises
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    const channel = supabase
+      .channel('admin-analyses-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'analysis_requests'
+        },
+        (payload) => {
+          console.log('Análise atualizada em tempo real:', payload);
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isAdmin]);
+
   useEffect(() => {
     if (selectedTicket) {
       loadMessages(selectedTicket.id);
@@ -157,40 +183,46 @@ const Admin = () => {
     try {
       setLoading(true);
 
-      // Buscar profiles com contagem de análises
-      const { data: profilesData, error: profilesError } = await supabase
-        .from('profiles')
-        .select(`
-          *,
-          analysis_requests!user_id(
-            id,
-            status
-          )
-        `)
-        .order('created_at', { ascending: false });
+      // Buscar usuários com emails usando a function segura
+      const { data: usersData, error: usersError } = await supabase
+        .rpc('get_all_users_for_admin');
 
-      if (profilesError) throw profilesError;
+      if (usersError) throw usersError;
 
-      // Processar dados dos usuários
-      const usersData: UserData[] = (profilesData || []).map((profile: any) => {
-        const analyses = profile.analysis_requests || [];
-        const totalAnalyses = analyses.length;
-        const completedAnalyses = analyses.filter((a: any) => a.status === 'completed').length;
-        const successRate = totalAnalyses > 0 ? Math.round((completedAnalyses / totalAnalyses) * 100) : 0;
+      // Buscar análises de cada usuário para métricas e verificar se é admin
+      const usersWithMetrics = await Promise.all(
+        (usersData || []).map(async (userData: any) => {
+          const { data: analyses } = await supabase
+            .from('analysis_requests')
+            .select('id, status')
+            .eq('user_id', userData.user_id);
 
-        return {
-          id: profile.id,
-          email: profile.id, // Temporário, vamos buscar do auth
-          fullName: profile.full_name,
-          plan: profile.plan || 'free',
-          credits: profile.credits_remaining || 0,
-          totalAnalyses,
-          completedAnalyses,
-          successRate,
-          lastActivity: profile.last_activity_at,
-          createdAt: profile.created_at
-        };
-      });
+          const { data: roleData } = await supabase
+            .from('user_roles')
+            .select('role')
+            .eq('user_id', userData.user_id)
+            .eq('role', 'admin')
+            .maybeSingle();
+
+          const totalAnalyses = analyses?.length || 0;
+          const completedAnalyses = analyses?.filter((a) => a.status === 'completed').length || 0;
+          const successRate = totalAnalyses > 0 ? Math.round((completedAnalyses / totalAnalyses) * 100) : 0;
+
+          return {
+            id: userData.user_id,
+            email: userData.email,
+            fullName: userData.full_name,
+            plan: userData.plan || 'free',
+            credits: userData.credits_remaining || 0,
+            totalAnalyses,
+            completedAnalyses,
+            successRate,
+            lastActivity: userData.last_activity_at,
+            createdAt: userData.created_at,
+            isAdmin: !!roleData
+          };
+        })
+      );
 
       // Buscar análises com métricas
       const { data: analysesData, error: analysesError } = await supabase
@@ -212,7 +244,7 @@ const Admin = () => {
           ? `${Math.round((completedAt.getTime() - createdAt.getTime()) / 60000)}min`
           : null;
 
-        const userEmail = usersData.find(u => u.id === analysis.user_id)?.email || 'N/A';
+        const userEmail = usersWithMetrics.find(u => u.id === analysis.user_id)?.email || 'N/A';
 
         return {
           id: analysis.id,
@@ -230,7 +262,7 @@ const Admin = () => {
         };
       });
 
-      setUsers(usersData);
+      setUsers(usersWithMetrics);
       setAnalyses(analysesProcessed);
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
@@ -322,6 +354,49 @@ const Admin = () => {
     } catch (error) {
       console.error('Erro ao carregar análises de vendas:', error);
       toast.error('Erro ao carregar análises de vendas');
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, userEmail: string) => {
+    if (!confirm(`⚠️ ATENÇÃO: Tem certeza que deseja excluir o usuário ${userEmail}?\n\nEsta ação irá:\n- Deletar todas as análises do usuário\n- Deletar todas as mensagens\n- Deletar todos os dados permanentemente\n\nEsta ação NÃO pode ser desfeita!`)) {
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-delete-user', {
+        body: { user_id: userId }
+      });
+
+      if (error) throw error;
+
+      toast.success(`✅ Usuário ${userEmail} excluído com sucesso!`);
+      await loadData();
+    } catch (error: any) {
+      console.error('Erro ao excluir usuário:', error);
+      toast.error(`❌ Erro ao excluir usuário: ${error.message}`);
+    }
+  };
+
+  const handleToggleAdmin = async (userId: string, userEmail: string, currentlyAdmin: boolean) => {
+    const action = currentlyAdmin ? 'demote' : 'promote';
+    const actionText = currentlyAdmin ? 'remover permissões de admin' : 'promover a admin';
+
+    if (!confirm(`Tem certeza que deseja ${actionText} do usuário ${userEmail}?`)) {
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-toggle-role', {
+        body: { user_id: userId, action }
+      });
+
+      if (error) throw error;
+
+      toast.success(`✅ ${currentlyAdmin ? 'Permissões removidas' : 'Usuário promovido'} com sucesso!`);
+      await loadData();
+    } catch (error: any) {
+      console.error('Erro ao alterar role:', error);
+      toast.error(`❌ Erro: ${error.message}`);
     }
   };
 
@@ -725,7 +800,17 @@ const Admin = () => {
                   <TableBody>
                     {filteredUsers.map((userData) => (
                       <TableRow key={userData.id}>
-                        <TableCell className="font-medium">{userData.email}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            {userData.email}
+                            {userData.isAdmin && (
+                              <Badge variant="default" className="text-xs">
+                                <Shield className="h-3 w-3 mr-1" />
+                                Admin
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell><Badge variant="secondary">{userData.plan}</Badge></TableCell>
                         <TableCell>{userData.credits}</TableCell>
                         <TableCell>{userData.totalAnalyses}</TableCell>
@@ -735,49 +820,68 @@ const Admin = () => {
                           {format(new Date(userData.createdAt), "dd/MM/yyyy", { locale: ptBR })}
                         </TableCell>
                         <TableCell>
-                          <Dialog open={dialogOpen && selectedUserId === userData.id} onOpenChange={(open) => {
-                            setDialogOpen(open);
-                            if (!open) setSelectedUserId(null);
-                          }}>
-                            <DialogTrigger asChild>
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => setSelectedUserId(userData.id)}
-                              >
-                                <Plus className="h-3 w-3 mr-1" />
-                                Créditos
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Adicionar Créditos</DialogTitle>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div>
-                                  <Label>Usuário</Label>
-                                  <p className="text-sm text-muted-foreground">{userData.email}</p>
-                                  <p className="text-xs text-muted-foreground">Créditos atuais: {userData.credits}</p>
-                                </div>
-                                <div>
-                                  <Label htmlFor="credits">Quantidade de Créditos</Label>
-                                  <Input
-                                    id="credits"
-                                    type="number"
-                                    min="1"
-                                    value={creditsToAdd}
-                                    onChange={(e) => setCreditsToAdd(Number(e.target.value))}
-                                    placeholder="Ex: 10"
-                                  />
-                                </div>
-                              </div>
-                              <DialogFooter>
-                                <Button onClick={handleAddCredits} disabled={addingCredits}>
-                                  {addingCredits ? 'Adicionando...' : 'Confirmar'}
+                          <div className="flex items-center gap-2">
+                            <Dialog open={dialogOpen && selectedUserId === userData.id} onOpenChange={(open) => {
+                              setDialogOpen(open);
+                              if (!open) setSelectedUserId(null);
+                            }}>
+                              <DialogTrigger asChild>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => setSelectedUserId(userData.id)}
+                                >
+                                  <Plus className="h-3 w-3 mr-1" />
+                                  Créditos
                                 </Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Adicionar Créditos</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-4">
+                                  <div>
+                                    <Label>Usuário</Label>
+                                    <p className="text-sm text-muted-foreground">{userData.email}</p>
+                                    <p className="text-xs text-muted-foreground">Créditos atuais: {userData.credits}</p>
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="credits">Quantidade de Créditos</Label>
+                                    <Input
+                                      id="credits"
+                                      type="number"
+                                      min="1"
+                                      value={creditsToAdd}
+                                      onChange={(e) => setCreditsToAdd(Number(e.target.value))}
+                                      placeholder="Ex: 10"
+                                    />
+                                  </div>
+                                </div>
+                                <DialogFooter>
+                                  <Button onClick={handleAddCredits} disabled={addingCredits}>
+                                    {addingCredits ? 'Adicionando...' : 'Confirmar'}
+                                  </Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                            
+                            <Button
+                              size="sm"
+                              variant={userData.isAdmin ? "secondary" : "outline"}
+                              onClick={() => handleToggleAdmin(userData.id, userData.email, userData.isAdmin)}
+                              title={userData.isAdmin ? "Remover permissões de admin" : "Promover a admin"}
+                            >
+                              {userData.isAdmin ? <ShieldOff className="h-3 w-3" /> : <Shield className="h-3 w-3" />}
+                            </Button>
+                            
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDeleteUser(userData.id, userData.email)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -1084,6 +1188,7 @@ const Admin = () => {
                       <TableHead>Tentativas</TableHead>
                       <TableHead>Duração</TableHead>
                       <TableHead>Data</TableHead>
+                      <TableHead>Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1100,6 +1205,16 @@ const Admin = () => {
                         <TableCell className="text-sm">{analysis.duration || '-'}</TableCell>
                         <TableCell className="text-sm">
                           {format(new Date(analysis.createdAt), "dd/MM HH:mm", { locale: ptBR })}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => navigate(`/admin/analysis/${analysis.id}`)}
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
+                            Ver
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))

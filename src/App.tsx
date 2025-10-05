@@ -47,6 +47,11 @@ const App = () => (
                 <AnalysisDetails />
               </ProtectedRoute>
             } />
+            <Route path="/admin/analysis/:id" element={
+              <ProtectedRoute>
+                <AnalysisDetails isAdminView={true} />
+              </ProtectedRoute>
+            } />
             <Route path="/dashboard/settings" element={
               <ProtectedRoute>
                 <Settings />

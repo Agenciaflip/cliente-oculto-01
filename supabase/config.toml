@@ -23,3 +23,9 @@ verify_jwt = false
 
 [functions.analyze-sales-conversation]
 verify_jwt = false
+
+[functions.admin-delete-user]
+verify_jwt = false
+
+[functions.admin-toggle-role]
+verify_jwt = false

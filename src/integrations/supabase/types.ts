@@ -426,6 +426,27 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_delete_user: {
+        Args: { _target_user_id: string }
+        Returns: Json
+      }
+      get_all_users_for_admin: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          created_at: string
+          credits_remaining: number
+          email: string
+          full_name: string
+          last_activity_at: string
+          plan: string
+          subscription_tier: string
+          user_id: string
+        }[]
+      }
+      get_user_email: {
+        Args: { _user_id: string }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
