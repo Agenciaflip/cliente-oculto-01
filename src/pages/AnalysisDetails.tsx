@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles, Printer } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
@@ -19,12 +19,35 @@ const AnalysisDetails = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [salesAnalysis, setSalesAnalysis] = useState<any>(null);
   const [generatingSales, setGeneratingSales] = useState(false);
+  const [companyLogo, setCompanyLogo] = useState<string>("");
 
   useEffect(() => {
     if (!id) {
       navigate("/dashboard");
       return;
     }
+
+    const fetchCompanyLogo = async () => {
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        if (!session.session?.user) return;
+
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("company_logo")
+          .eq("id", session.session.user.id)
+          .single();
+
+        if (profileData?.company_logo) {
+          const { data: { publicUrl } } = supabase.storage
+            .from("company-logos")
+            .getPublicUrl(profileData.company_logo);
+          setCompanyLogo(publicUrl);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar logo:", error);
+      }
+    };
 
     const fetchAnalysis = async () => {
       // Buscar dados da análise
@@ -63,6 +86,7 @@ const AnalysisDetails = () => {
     };
 
     fetchAnalysis();
+    fetchCompanyLogo();
 
     // Inscrever para updates em tempo real
     const channel = supabase
@@ -298,7 +322,18 @@ const AnalysisDetails = () => {
                 {analysis.company_name && ` • ${analysis.company_name}`}
               </p>
             </div>
-            {getStatusBadge(analysis.status)}
+            <div className="flex items-center gap-3">
+              {getStatusBadge(analysis.status)}
+              {analysis.status === 'completed' && (
+                <Button
+                  onClick={() => window.print()}
+                  className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700"
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  Exportar PDF
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </header>

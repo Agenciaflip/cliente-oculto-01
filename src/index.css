@@ -111,3 +111,57 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* Print Styles */
+@media print {
+  @page {
+    size: A4;
+    margin: 2cm;
+  }
+
+  body {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* Esconder elementos não necessários */
+  header,
+  nav,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Mostrar apenas conteúdo principal */
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Logo da empresa no topo */
+  .print-logo {
+    display: block !important;
+    max-width: 150px;
+    margin-bottom: 2rem;
+  }
+
+  /* Evitar quebras de página */
+  .print-section {
+    page-break-inside: avoid;
+  }
+
+  /* Cores e gradientes */
+  .bg-gradient-to-r,
+  .bg-gradient-subtle {
+    background: white !important;
+  }
+
+  /* Cards */
+  .shadow-soft,
+  .shadow-medium,
+  .shadow-strong {
+    box-shadow: none !important;
+    border: 1px solid #e5e7eb !important;
+  }
+}

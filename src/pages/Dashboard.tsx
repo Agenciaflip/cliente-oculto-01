@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LogOut, Plus, Eye } from "lucide-react";
+import { LogOut, Plus, Eye, Settings } from "lucide-react";
 
 interface Analysis {
   id: string;
@@ -22,6 +22,7 @@ const Dashboard = () => {
   const [profile, setProfile] = useState<any>(null);
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [loading, setLoading] = useState(true);
+  const [companyLogo, setCompanyLogo] = useState<string>("");
 
   useEffect(() => {
     if (user) {
@@ -39,6 +40,14 @@ const Dashboard = () => {
         .single();
 
       setProfile(profileData);
+
+      // Carregar logo se existir
+      if (profileData?.company_logo) {
+        const { data: { publicUrl } } = supabase.storage
+          .from("company-logos")
+          .getPublicUrl(profileData.company_logo);
+        setCompanyLogo(publicUrl);
+      }
 
       // Carregar análises
       const { data: analysesData } = await supabase
@@ -109,9 +118,18 @@ const Dashboard = () => {
       {/* Header */}
       <header className="border-b bg-card shadow-soft">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Cliente Oculto AI</h1>
-            <p className="text-sm text-muted-foreground">{user.email}</p>
+          <div className="flex items-center gap-4">
+            {companyLogo && (
+              <img
+                src={companyLogo}
+                alt="Logo da empresa"
+                className="h-12 w-12 object-contain"
+              />
+            )}
+            <div>
+              <h1 className="text-2xl font-bold">Cliente Oculto AI</h1>
+              <p className="text-sm text-muted-foreground">{user.email}</p>
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right">
@@ -122,6 +140,14 @@ const Dashboard = () => {
               <p className="text-sm text-muted-foreground">Créditos</p>
               <p className="font-medium">{profile?.credits_remaining || 0}</p>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate("/dashboard/settings")}
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Configurações
+            </Button>
             <Button variant="outline" size="sm" onClick={handleSignOut}>
               <LogOut className="h-4 w-4 mr-2" />
               Sair

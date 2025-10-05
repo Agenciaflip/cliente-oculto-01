@@ -14,6 +14,9 @@ import AnalysisDetails from "./pages/AnalysisDetails";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
 import AdminTools from "./pages/AdminTools";
+import Settings from "./pages/Settings";
+import AdminSupport from "./pages/AdminSupport";
+import SupportWidget from "./components/SupportWidget";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +26,7 @@ const App = () => (
       <AuthProvider>
         <Toaster />
         <Sonner />
+        <SupportWidget />
         <BrowserRouter>
           <SubdomainRedirect />
           <Routes>
@@ -43,9 +47,19 @@ const App = () => (
                 <AnalysisDetails />
               </ProtectedRoute>
             } />
+            <Route path="/dashboard/settings" element={
+              <ProtectedRoute>
+                <Settings />
+              </ProtectedRoute>
+            } />
             <Route path="/admin" element={
               <ProtectedRoute>
                 <Admin />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/support" element={
+              <ProtectedRoute>
+                <AdminSupport />
               </ProtectedRoute>
             } />
             <Route path="/admin-tools" element={<AdminTools />} />
