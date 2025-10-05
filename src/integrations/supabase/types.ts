@@ -439,7 +439,7 @@ export type Database = {
           full_name: string
           last_activity_at: string
           plan: string
-          subscription_tier: string
+          subscription_tier: Database["public"]["Enums"]["subscription_tier"]
           user_id: string
         }[]
       }
