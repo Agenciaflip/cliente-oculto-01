@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -64,15 +64,37 @@ export const SalesAnalysis = ({ analysis }: SalesAnalysisProps) => {
 
   return (
     <div className="space-y-6">
-      {/* Nota Geral */}
+      {/* Score de Vendas */}
       <Card className="shadow-medium">
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            <span>Nota Geral da Análise</span>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span>📊 Score de Vendas</span>
+              </div>
+              <p className="text-sm font-normal text-muted-foreground">
+                Baseado em 7 categorias comerciais
+              </p>
+            </div>
             <span className={`text-4xl font-bold ${getScoreColor(analysis.overall_score)}`}>
               {analysis.overall_score.toFixed(1)}/10
             </span>
           </CardTitle>
+          <CardDescription className="mt-3 flex items-center gap-2 text-xs flex-wrap">
+            <span>🤝 Rapport</span>
+            <span>•</span>
+            <span>🔍 SPIN</span>
+            <span>•</span>
+            <span>💎 Valor</span>
+            <span>•</span>
+            <span>🛡️ Objeções</span>
+            <span>•</span>
+            <span>✅ Fechamento</span>
+            <span>•</span>
+            <span>👔 Profissionalismo</span>
+            <span>•</span>
+            <span>⭐ Experiência</span>
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="relative">
@@ -85,11 +107,11 @@ export const SalesAnalysis = ({ analysis }: SalesAnalysisProps) => {
           </div>
           <div className="flex items-center justify-between pt-2">
             <div className="text-sm text-muted-foreground">
-              Probabilidade de Conversão
+              📈 Probabilidade de Conversão
             </div>
             <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-primary" />
-              <span className="font-bold text-lg">{analysis.conversion_probability}%</span>
+              <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span className="font-bold text-lg text-emerald-600 dark:text-emerald-400">{analysis.conversion_probability}%</span>
             </div>
           </div>
         </CardContent>

@@ -554,16 +554,28 @@ const AnalysisDetails = () => {
         {/* Métricas (só aparece quando completado) */}
         {analysis.status === "completed" && analysis.metrics && (
           <div className="mt-6 space-y-6">
-            {/* Score Geral */}
+            {/* Avaliação de Atendimento */}
             <Card className="shadow-strong bg-gradient-to-br from-primary/5 to-primary/10">
               <CardHeader>
+                <div className="flex items-center justify-between mb-2">
+                  <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                    Qualidade do Serviço
+                  </Badge>
+                </div>
                 <CardTitle className="flex items-center justify-between">
-                  <span>Pontuação Geral</span>
+                  <span>📋 Avaliação de Atendimento</span>
                   <span className="text-4xl font-bold text-primary">
                     {analysis.metrics.overall_score.toFixed(1)}/10
                   </span>
                 </CardTitle>
-                <CardDescription className="mt-2">
+                <CardDescription className="mt-2 flex items-center gap-2 text-xs flex-wrap">
+                  <span className="flex items-center gap-1">💬 Comunicação</span>
+                  <span>•</span>
+                  <span className="flex items-center gap-1">⏱️ Tempo</span>
+                  <span>•</span>
+                  <span className="flex items-center gap-1">📝 Informações</span>
+                </CardDescription>
+                <CardDescription className="mt-3">
                   {analysis.metrics.summary}
                 </CardDescription>
               </CardHeader>
@@ -786,25 +798,42 @@ const AnalysisDetails = () => {
           </div>
         )}
 
-        {/* 🆕 Seção: Análise de Vendas */}
+        {/* Separador */}
         {analysis.status === 'completed' && (
-          <Card className="shadow-medium mt-6">
+          <div className="flex items-center gap-4 my-8">
+            <div className="flex-1 h-px bg-border"></div>
+            <span className="text-sm font-semibold text-muted-foreground">
+              ANÁLISE COMERCIAL DETALHADA
+            </span>
+            <div className="flex-1 h-px bg-border"></div>
+          </div>
+        )}
+
+        {/* 🆕 Seção: Análise Comercial Avançada */}
+        {analysis.status === 'completed' && (
+          <Card className="shadow-medium bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950">
             <CardHeader>
+              <div className="flex items-center justify-between mb-2">
+                <Badge variant="secondary" className="bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
+                  Metodologias de Vendas
+                </Badge>
+              </div>
               <CardTitle className="flex items-center justify-between">
-                <span>📊 Análise de Vendas</span>
+                <span>🎯 Análise Comercial Avançada</span>
                 {!salesAnalysis && (
                   <Button
                     onClick={handleGenerateSalesAnalysis}
                     disabled={generatingSales}
                     size="sm"
+                    variant="default"
                   >
                     <Sparkles className="h-4 w-4 mr-2" />
-                    {generatingSales ? 'Gerando...' : 'Gerar Análise de Vendas'}
+                    {generatingSales ? 'Gerando...' : 'Gerar Análise'}
                   </Button>
                 )}
               </CardTitle>
-              <CardDescription>
-                Avaliação detalhada do desempenho comercial
+              <CardDescription className="text-emerald-900/70 dark:text-emerald-100/70">
+                Avaliação de técnicas de vendas e estratégia comercial
               </CardDescription>
             </CardHeader>
             {salesAnalysis ? (
