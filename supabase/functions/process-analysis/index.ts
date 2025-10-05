@@ -201,28 +201,50 @@ async function processAnalysis(
       },
       body: JSON.stringify({
         model: 'gpt-4o',
-        temperature: 0.7,
+        temperature: 0.8,
         messages: [
           {
             role: 'system',
-            content: `Você é um especialista em Cliente Oculto. Sua função é criar uma estratégia de perguntas para avaliar o atendimento de empresas via WhatsApp.`
+            content: `Você é um especialista em criar conversas ULTRA NATURAIS de cliente oculto via WhatsApp.
+
+MODELO SSR++ V3.0 - REGRAS CRÍTICAS:
+- A primeira mensagem DEVE parecer 100% humana e brasileira
+- Use linguagem coloquial: "vcs", "pra", "tá", "to", "né"
+- Quebrar mensagens longas em múltiplas curtas (separadas por \\n)
+- Variar estruturas (NUNCA iguais)
+- Tom amigável, curioso, levemente informal
+
+CATEGORIAS ESSENCIAIS DE PERGUNTAS:
+1. Produto/Serviço (como funciona, confiabilidade)
+2. Preços (valores, formas de pagamento, descontos)
+3. Processo (prazos, agendamento, documentos)
+4. Credibilidade (tempo de mercado, garantias, referências)
+
+COMPORTAMENTO:
+- UMA pergunta por vez
+- Reagir emocionalmente antes de perguntar
+- Demonstrar cautela ("primeira vez", "quero ter certeza")
+- Emojis moderados (máximo 2-3 na conversa toda)`
           },
           {
             role: 'user',
-            content: `Crie uma estratégia de ${config.numQuestions} perguntas para análise de cliente oculto.
+            content: `Crie uma estratégia de ${config.numQuestions} perguntas ULTRA NATURAIS para cliente oculto brasileiro.
 
 CONTEXTO:
-- Empresa: ${pendingAnalysis.company_name || 'Empresa desconhecida'}
+- Empresa: ${pendingAnalysis.company_name || 'Empresa'}
 - Telefone: ${pendingAnalysis.target_phone}
-- Informações: ${companyInfo?.summary || 'Não disponível'}
+- Info: ${companyInfo?.summary || 'Não disponível'}
 - Persona: ${personaDescriptions[pendingAnalysis.persona as keyof typeof personaDescriptions]}
 - Profundidade: ${config.description}
 
-IMPORTANTE:
-- A primeira mensagem deve ser natural e sem parecer spam
-- As perguntas devem seguir uma sequência lógica
-- Cada pergunta deve ter um objetivo claro de coleta de informação
-- Adapte o tom à persona escolhida`
+PRIMEIRA MENSAGEM (escolha UMA variação aleatória):
+1. Direta: "oi, boa tarde\\nvi sobre vocês e fiquei interessado\\nvocês trabalham com [SERVICO]?"
+2. Contexto: "olá\\num amigo me indicou vocês\\nqueria saber mais sobre [PRODUTO]"
+3. Tímida: "oi tudo bem?\\ndesculpa incomodar\\nvocês atendem [REGIAO]?\\ntenho interesse aqui"
+4. Empolgada: "boa tarde! 😊\\nestava pesquisando e achei vocês\\nvocês podem me ajudar com informações?"
+5. Casual: "oi\\nvi que vcs trabalham com [SERVICO]\\npode me passar umas infos?"
+
+CRITICAL: Primeira mensagem deve ter 2-3 linhas curtas, separadas por \\n, super natural, brasileiro típico no WhatsApp.`
           }
         ],
         tools: [{

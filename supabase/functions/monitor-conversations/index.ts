@@ -169,30 +169,119 @@ async function processConversation(
         adaptedQuestion = "Continuando conversa...";
       }
 
-      // Chamar OpenAI para adaptar/gerar resposta
+      // SISTEMA SSR++ V3.0 - Análise e Geração de Resposta Ultra Natural
       try {
-        const systemPrompt = isFreestyle
-          ? `Você é um cliente oculto ${analysis.persona} em uma conversa livre. Continue a conversa de forma natural, fazendo perguntas relevantes ou respondendo ao que foi dito.`
-          : `Você é um cliente oculto ${analysis.persona}. Adapte a próxima pergunta considerando TODAS as mensagens recentes do cliente. Seja natural e coerente.`;
+        // <think> - Análise interna do contexto
+        const contextAnalysis = {
+          tipo_resposta_vendedor: groupedContent.length > 100 ? 'completa' : 'curta',
+          momento_conversa: currentQuestionIndex === 0 ? 'inicio' : currentQuestionIndex >= totalQuestions ? 'finalizacao' : 'aprofundamento',
+          nivel_informacao: currentQuestionIndex >= totalQuestions ? 'ja_tenho_tudo' : 'preciso_mais'
+        };
+
+        console.log(`🧠 [${analysis.id}] Análise SSR++:`, contextAnalysis);
+
+        // Contar emojis já usados na conversa
+        const emojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
+        let emojiCount = 0;
+        for (const msg of messages) {
+          if (msg.role === 'ai') {
+            const matches = msg.content.match(emojiRegex);
+            emojiCount += matches ? matches.length : 0;
+          }
+        }
+
+        const systemPrompt = `MODELO SSR++ V3.0 - CLIENTE OCULTO AI
+
+[ID-002] IDENTIDADE:
+Você é ${['Lucas', 'Maria', 'Pedro', 'Ana'][Math.floor(Math.random() * 4)]}, brasileiro(a) de ${28 + Math.floor(Math.random() * 15)} anos.
+Trabalha e tem rotina corrida mas está priorizando resolver essa necessidade agora.
+
+PERSONALIDADE:
+- Empatia: 8/10 (educado, simpático)
+- Cautela: 6/10 (primeira vez, quer ter certeza)
+- Curiosidade: 7/10 (faz perguntas, demonstra interesse)
+
+[ID-006] LINGUAGEM COLOQUIAL BRASILEIRA (CRÍTICO):
+✅ USAR FREQUENTEMENTE:
+- "vcs" ao invés de "vocês"
+- "pra" ao invés de "para"  
+- "tá" ao invés de "está"
+- "vc" ao invés de "você"
+- "to" ao invés de "estou"
+- "né" no final
+- "tbm" ao invés de "também"
+- "rs" para risos leves (moderado)
+
+✅ EXPRESSÕES NATURAIS:
+"beleza" | "massa" | "legal" | "ah tá" | "entendi" | "valeu" | "hmm" | "nossa" | "caramba" | "tipo" | "sabe"
+
+[ID-008] REGRAS DE OURO - ALWAYS:
+1. Parecer 100% humano brasileiro em TODAS mensagens
+2. QUEBRAR mensagens longas em 2-3 curtas (separar por \\n)
+3. Fazer UMA pergunta por vez
+4. REAGIR emocionalmente ANTES de nova pergunta
+5. Variar estrutura (NUNCA igual)
+6. Agradecer por informações
+7. Demonstrar interesse genuíno
+8. Máximo ${3 - emojiCount} emojis restantes (${emojiCount}/3 usados)
+
+[ID-008] REGRAS DE OURO - NEVER:
+❌ Mencionar que é IA, análise ou cliente oculto
+❌ Fazer múltiplas perguntas seguidas
+❌ Usar linguagem formal ou robótica
+❌ Copiar estruturas idênticas
+❌ Usar emojis em excesso (limite: 3 total)
+❌ Responder coisas sem sentido
+❌ Ser grosseiro
+
+[ID-010] CHECKLIST PRE-ENVIO:
+✓ Parece brasileiro real?
+✓ Faz sentido no contexto?
+✓ Não revela que sou IA?
+✓ Tom natural?
+✓ Quebrei mensagem longa em várias curtas?`;
 
         const userPrompt = isFreestyle
           ? `HISTÓRICO COMPLETO:
 ${conversationHistory}
 
-MENSAGENS RECENTES DO CLIENTE:
+MENSAGENS RECENTES DO VENDEDOR:
 ${groupedContent}
 
-Continue a conversa de forma natural. Faça uma pergunta relevante ou comente sobre o que foi dito. Máximo 2 frases.`
+INSTRUÇÃO: Continue a conversa de forma ULTRA NATURAL. 
+
+COMPORTAMENTO:
+1. PRIMEIRO: Reagir ao que vendedor disse ("ah legal", "hmm interessante", "massa")
+2. DEPOIS: Fazer UMA pergunta relevante OU comentar algo
+3. QUEBRAR: Se resposta > 50 chars, quebrar em 2-3 linhas com \\n
+4. TOM: Casual brasileiro WhatsApp
+
+EXEMPLO PERFEITO:
+"ah legal, gostei\\ne quanto tempo leva?\\né que to com um pouco de pressa"
+
+MÁXIMO: 3 linhas curtas separadas por \\n`
           : `HISTÓRICO COMPLETO:
 ${conversationHistory}
 
-MENSAGENS AGRUPADAS DO CLIENTE:
+MENSAGENS AGRUPADAS DO VENDEDOR:
 ${groupedContent}
 
 PRÓXIMA PERGUNTA PLANEJADA: ${nextQuestion.question}
 OBJETIVO: ${nextQuestion.expected_info}
 
-Adapte a pergunta de forma natural considerando TUDO que o cliente disse. Seja direto, sem rodeios.`;
+INSTRUÇÃO: Adapte a pergunta de forma ULTRA NATURAL considerando TUDO que o vendedor disse.
+
+COMPORTAMENTO:
+1. Se vendedor já respondeu algo relacionado → adaptar pergunta
+2. Se vendedor fez pergunta → responder primeiro, depois perguntar
+3. SEMPRE: Reagir emocionalmente ("entendi", "ah tá", "hmm") antes
+4. QUEBRAR: Separar em 2-3 linhas curtas com \\n
+5. UMA pergunta apenas
+
+EXEMPLO PERFEITO:
+"ah entendi\\ne quanto fica mais ou menos?\\naceita cartão?"
+
+MÁXIMO: 3 linhas curtas separadas por \\n`;
 
         const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
@@ -206,8 +295,8 @@ Adapte a pergunta de forma natural considerando TUDO que o cliente disse. Seja d
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt }
             ],
-            temperature: 0.7,
-            max_tokens: 300,
+            temperature: 0.85,
+            max_tokens: 150,
           }),
         });
 
@@ -236,43 +325,65 @@ Adapte a pergunta de forma natural considerando TUDO que o cliente disse. Seja d
         }
       }
 
-      // Enviar via Evolution (remove "Cliente Oculto:" prefix for WhatsApp)
-      const cleanMessage = adaptedQuestion.replace(/^Cliente Oculto:\s*/i, '');
+      // QUEBRA DE MENSAGENS INTELIGENTE (SSR++ ID-006)
+      const cleanMessage = adaptedQuestion
+        .replace(/^Cliente Oculto:\s*/i, '')
+        .replace(/^Você:\s*/i, '')
+        .trim();
+
+      // Quebrar em múltiplas mensagens se tiver \n
+      const messageChunks = cleanMessage.split('\n').filter(chunk => chunk.trim().length > 0);
       
-      const evolutionPayload = {
-        number: analysis.target_phone,
-        text: cleanMessage
-      };
+      console.log(`📦 [${analysis.id}] Enviando ${messageChunks.length} mensagens com delays`);
 
-      const evolutionResponse = await fetch(
-        `${evolutionUrl}/message/sendText/${evolutionInstance}`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': evolutionKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(evolutionPayload),
+      // Enviar cada chunk com delay simulando digitação humana
+      for (let i = 0; i < messageChunks.length; i++) {
+        const chunk = messageChunks[i].trim();
+        
+        // Delay entre mensagens: 1.5s a 3s (aleatório)
+        if (i > 0) {
+          const delay = 1500 + Math.random() * 1500;
+          console.log(`⏱️ [${analysis.id}] Aguardando ${Math.round(delay)}ms antes da próxima mensagem...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
         }
-      );
 
-      if (!evolutionResponse.ok) {
-        throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
+        const evolutionPayload = {
+          number: analysis.target_phone,
+          text: chunk
+        };
+
+        const evolutionResponse = await fetch(
+          `${evolutionUrl}/message/sendText/${evolutionInstance}`,
+          {
+            method: 'POST',
+            headers: {
+              'apikey': evolutionKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(evolutionPayload),
+          }
+        );
+
+        if (!evolutionResponse.ok) {
+          throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
+        }
+
+        console.log(`📤 [${analysis.id}] Chunk ${i + 1}/${messageChunks.length} enviado: "${chunk.substring(0, 30)}..."`);
       }
 
-      console.log(`📤 [${analysis.id}] Resposta enviada`);
-
-      // Salvar mensagem da IA
+      // Salvar mensagem da IA (mensagem completa, não chunks individuais)
       await supabase.from('conversation_messages').insert({
         analysis_id: analysis.id,
         role: 'ai',
-        content: adaptedQuestion,
+        content: cleanMessage, // Mensagem completa
         metadata: { 
           processed: true,
           order: currentQuestionIndex + 1,
           expected_info: nextQuestion?.expected_info || 'conversa livre',
           grouped_responses: unprocessedMessages.length,
-          is_freestyle: isFreestyle
+          is_freestyle: isFreestyle,
+          chunks_sent: messageChunks.length,
+          ssp_version: 'v3.0'
         }
       });
 
