@@ -140,12 +140,14 @@ async function processConversation(
         .map((m: any) => `${m.role === 'ai' ? 'Cliente Oculto' : 'Empresa'}: ${m.content}`)
         .join('\n');
 
-      // Buscar próxima pergunta - CORREÇÃO: só contar perguntas reais (não nudges)
-      const allMessages = messages;
-      const aiQuestions = allMessages.filter((m: any) => 
+      // SISTEMA SSR++ V3.0 - Análise e Geração de Resposta Ultra Natural
+      
+      // Contar perguntas já feitas pelo AI (excluindo nudges)
+      const aiQuestionsCount = messages.filter((m: any) => 
         m.role === 'ai' && !m.metadata?.is_nudge
-      );
-      const currentQuestionIndex = aiQuestions.length;
+      ).length;
+      
+      const currentQuestionIndex = aiQuestionsCount;
       const questionsStrategy = analysis.questions_strategy;
       const totalQuestions = questionsStrategy?.questions?.length || 0;
 
@@ -168,120 +170,145 @@ async function processConversation(
         isFreestyle = true;
         adaptedQuestion = "Continuando conversa...";
       }
-
-      // SISTEMA SSR++ V3.0 - Análise e Geração de Resposta Ultra Natural
-      try {
-        // <think> - Análise interna do contexto
-        const contextAnalysis = {
-          tipo_resposta_vendedor: groupedContent.length > 100 ? 'completa' : 'curta',
-          momento_conversa: currentQuestionIndex === 0 ? 'inicio' : currentQuestionIndex >= totalQuestions ? 'finalizacao' : 'aprofundamento',
-          nivel_informacao: currentQuestionIndex >= totalQuestions ? 'ja_tenho_tudo' : 'preciso_mais'
-        };
-
-        console.log(`🧠 [${analysis.id}] Análise SSR++:`, contextAnalysis);
-
-        // Contar emojis já usados na conversa
-        const emojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
-        let emojiCount = 0;
-        for (const msg of messages) {
-          if (msg.role === 'ai') {
-            const matches = msg.content.match(emojiRegex);
-            emojiCount += matches ? matches.length : 0;
-          }
+      
+      // Contar emojis já usados
+      const emojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
+      let emojiCount = 0;
+      for (const msg of messages) {
+        if (msg.role === 'ai') {
+          const matches = msg.content.match(emojiRegex);
+          emojiCount += matches ? matches.length : 0;
         }
+      }
+
+      // Verificar se deve encerrar (>= 10 perguntas)
+      const shouldFinish = aiQuestionsCount >= 10;
+
+      console.log(`📊 [${analysis.id}] Perguntas: ${aiQuestionsCount}/10, Emojis: ${emojiCount}/3, Finalizar: ${shouldFinish}`);
+
+      try {
 
         const systemPrompt = `MODELO SSR++ V3.0 - CLIENTE OCULTO AI
 
-[ID-002] IDENTIDADE:
-Você é ${['Lucas', 'Maria', 'Pedro', 'Ana'][Math.floor(Math.random() * 4)]}, brasileiro(a) de ${28 + Math.floor(Math.random() * 15)} anos.
-Trabalha e tem rotina corrida mas está priorizando resolver essa necessidade agora.
+IDENTIDADE: Você é Lucas/Maria, brasileiro(a) de 28-42 anos, interessado genuinamente no produto/serviço.
 
 PERSONALIDADE:
-- Empatia: 8/10 (educado, simpático)
-- Cautela: 6/10 (primeira vez, quer ter certeza)
-- Curiosidade: 7/10 (faz perguntas, demonstra interesse)
+- Empático (8/10) - educado, simpático
+- Cauteloso (6/10) - primeira vez, quer ter certeza
+- Curioso (7/10) - faz perguntas, demonstra interesse
 
-[ID-006] LINGUAGEM COLOQUIAL BRASILEIRA (CRÍTICO):
-✅ USAR FREQUENTEMENTE:
-- "vcs" ao invés de "vocês"
-- "pra" ao invés de "para"  
-- "tá" ao invés de "está"
-- "vc" ao invés de "você"
-- "to" ao invés de "estou"
-- "né" no final
-- "tbm" ao invés de "também"
-- "rs" para risos leves (moderado)
+COMPORTAMENTO CRÍTICO:
 
-✅ EXPRESSÕES NATURAIS:
-"beleza" | "massa" | "legal" | "ah tá" | "entendi" | "valeu" | "hmm" | "nossa" | "caramba" | "tipo" | "sabe"
+1. LINGUAGEM COLOQUIAL BRASILEIRA (usar ocasionalmente):
+   - "vcs" ao invés de "vocês"
+   - "pra" ao invés de "para"
+   - "tá" ao invés de "está"
+   - "né" no final
+   - "to" ao invés de "estou"
 
-[ID-008] REGRAS DE OURO - ALWAYS:
-1. Parecer 100% humano brasileiro em TODAS mensagens
-2. QUEBRAR mensagens longas em 2-3 curtas (separar por \\n)
-3. Fazer UMA pergunta por vez
-4. REAGIR emocionalmente ANTES de nova pergunta
-5. Variar estrutura (NUNCA igual)
-6. Agradecer por informações
-7. Demonstrar interesse genuíno
-8. Máximo ${3 - emojiCount} emojis restantes (${emojiCount}/3 usados)
+2. FORMATO DE MENSAGEM:
+   - NUNCA incluir \\n no texto
+   - Cada mensagem é UMA string limpa
+   - Máximo 2 linhas curtas
+   - Seja direto e objetivo
 
-[ID-008] REGRAS DE OURO - NEVER:
-❌ Mencionar que é IA, análise ou cliente oculto
-❌ Fazer múltiplas perguntas seguidas
-❌ Usar linguagem formal ou robótica
-❌ Copiar estruturas idênticas
-❌ Usar emojis em excesso (limite: 3 total)
-❌ Responder coisas sem sentido
-❌ Ser grosseiro
+3. VARIAÇÃO TOTAL - NUNCA REPETIR:
+   ❌ PROIBIDO: "Ah, legal, [repetir]"
+   ❌ PROIBIDO: "Hmmm, [pergunta]"
+   ❌ PROIBIDO: "Massa, [reação]"
+   
+   ✅ VARIAR COMPLETAMENTE:
+   - "entendi"
+   - "beleza"
+   - "ok"
+   - "certo"
+   - "bom saber"
+   - Ou fazer pergunta direta sem reação
 
-[ID-010] CHECKLIST PRE-ENVIO:
-✓ Parece brasileiro real?
-✓ Faz sentido no contexto?
-✓ Não revela que sou IA?
-✓ Tom natural?
-✓ Quebrei mensagem longa em várias curtas?`;
+4. UMA PERGUNTA POR VEZ:
+   - Fazer apenas UMA pergunta curta
+   - Aguardar resposta antes da próxima
 
-        const userPrompt = isFreestyle
-          ? `HISTÓRICO COMPLETO:
-${conversationHistory}
+5. EMOJIS:
+   Emojis usados: ${emojiCount}/3 ${emojiCount >= 3 ? '- NÃO USE MAIS EMOJIS' : '- Máximo 1 emoji se apropriado'}
 
-MENSAGENS RECENTES DO VENDEDOR:
+6. MENSAGENS CURTAS:
+   Exemplos CORRETOS:
+   - "quanto custa?"
+   - "e o prazo?"
+   - "tem garantia?"
+   - "entendi, valeu"
+   - "beleza, vou pensar"
+
+REGRAS DE OURO:
+✅ Mensagens curtas e diretas
+✅ NUNCA repetir "ah massa" ou "hmmm"
+✅ NUNCA usar \\n no texto
+✅ Variar completamente cada resposta
+✅ Parecer 100% humano brasileiro
+
+❌ NUNCA mencionar que é IA
+❌ NUNCA repetir padrões
+❌ NUNCA mensagens longas`;
+
+        let userPrompt = '';
+        
+        if (shouldFinish) {
+          // Forçar finalização
+          userPrompt = `ENCERRAR CONVERSA AGORA
+
+Você já fez ${aiQuestionsCount} perguntas e coletou informações suficientes.
+
+Última mensagem do vendedor:
 ${groupedContent}
 
-INSTRUÇÃO: Continue a conversa de forma ULTRA NATURAL. 
+INSTRUÇÕES:
+Agradeça e finalize educadamente usando UMA destas opções:
 
-COMPORTAMENTO:
-1. PRIMEIRO: Reagir ao que vendedor disse ("ah legal", "hmm interessante", "massa")
-2. DEPOIS: Fazer UMA pergunta relevante OU comentar algo
-3. QUEBRAR: Se resposta > 50 chars, quebrar em 2-3 linhas com \\n
-4. TOM: Casual brasileiro WhatsApp
+Opção 1: "entendi tudo, vou pensar aqui, obrigado!"
+Opção 2: "beleza, me ajudou bastante, valeu!"
+Opção 3: "legal, vou avaliar e depois retorno, obrigado!"
+Opção 4: "certo, preciso pensar melhor, valeu pela atenção!"
 
-EXEMPLO PERFEITO:
-"ah legal, gostei\\ne quanto tempo leva?\\né que to com um pouco de pressa"
+Escolha uma opção e envie EXATAMENTE como está (sem modificar).`;
+        } else if (isFreestyle) {
+          // Modo conversa livre
+          userPrompt = `CONVERSA LIVRE - ${aiQuestionsCount} perguntas feitas
 
-MÁXIMO: 3 linhas curtas separadas por \\n`
-          : `HISTÓRICO COMPLETO:
-${conversationHistory}
+Histórico recente:
+${messages.slice(-6).map((m: any) => `${m.role === 'ai' ? 'Você' : 'Vendedor'}: ${m.content}`).join('\n')}
 
-MENSAGENS AGRUPADAS DO VENDEDOR:
+Última mensagem do vendedor:
 ${groupedContent}
 
-PRÓXIMA PERGUNTA PLANEJADA: ${nextQuestion.question}
-OBJETIVO: ${nextQuestion.expected_info}
+INSTRUÇÕES:
+1. Reagir de forma VARIADA (não repetir "ah massa" ou "hmmm")
+2. Fazer UMA pergunta curta e direta
+3. SEM \\n no texto
+4. Máximo 2 linhas
 
-INSTRUÇÃO: Adapte a pergunta de forma ULTRA NATURAL considerando TUDO que o vendedor disse.
+Exemplo: "e quanto tempo leva?"`;
+        } else {
+          // Modo perguntas estruturadas
+          userPrompt = `PERGUNTA ${currentQuestionIndex + 1}/${totalQuestions} - ${aiQuestionsCount} feitas
 
-COMPORTAMENTO:
-1. Se vendedor já respondeu algo relacionado → adaptar pergunta
-2. Se vendedor fez pergunta → responder primeiro, depois perguntar
-3. SEMPRE: Reagir emocionalmente ("entendi", "ah tá", "hmm") antes
-4. QUEBRAR: Separar em 2-3 linhas curtas com \\n
-5. UMA pergunta apenas
+Histórico recente:
+${messages.slice(-4).map((m: any) => `${m.role === 'ai' ? 'Você' : 'Vendedor'}: ${m.content}`).join('\n')}
 
-EXEMPLO PERFEITO:
-"ah entendi\\ne quanto fica mais ou menos?\\naceita cartão?"
+Última mensagem:
+${groupedContent}
 
-MÁXIMO: 3 linhas curtas separadas por \\n`;
+Próxima pergunta:
+"${nextQuestion.question}"
+
+INSTRUÇÕES:
+1. Reaja de forma VARIADA (não repetir palavras)
+2. Faça a pergunta de forma natural
+3. SEM \\n no texto
+4. Máximo 2 linhas curtas
+
+Exemplo: "entendi, e ${nextQuestion.question}"`;
+        }
 
         const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
@@ -295,8 +322,8 @@ MÁXIMO: 3 linhas curtas separadas por \\n`;
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt }
             ],
-            temperature: 0.85,
-            max_tokens: 150,
+            temperature: 0.9,
+            max_tokens: 100,
           }),
         });
 
@@ -316,7 +343,7 @@ MÁXIMO: 3 linhas curtas separadas por \\n`;
         } else {
           const aiData = await aiResponse.json();
           adaptedQuestion = aiData.choices?.[0]?.message?.content?.trim() || adaptedQuestion;
-          console.log(`🤖 [${analysis.id}] OpenAI adaptou: ${adaptedQuestion}`);
+          console.log(`🤖 [${analysis.id}] OpenAI respondeu: ${adaptedQuestion}`);
         }
       } catch (error) {
         console.error(`❌ [${analysis.id}] Erro na OpenAI:`, error);
@@ -325,25 +352,30 @@ MÁXIMO: 3 linhas curtas separadas por \\n`;
         }
       }
 
-      // QUEBRA DE MENSAGENS INTELIGENTE (SSR++ ID-006)
+      // Limpar completamente \n do texto
       const cleanMessage = adaptedQuestion
         .replace(/^Cliente Oculto:\s*/i, '')
         .replace(/^Você:\s*/i, '')
+        .replace(/\\n/g, ' ')
+        .replace(/\n/g, ' ')
+        .replace(/\s+/g, ' ')
         .trim();
 
-      // Quebrar em múltiplas mensagens se tiver \n
-      const messageChunks = cleanMessage.split('\n').filter(chunk => chunk.trim().length > 0);
+      // Quebrar mensagem em frases naturais (não por \n)
+      const messageChunks = cleanMessage.match(/[^.!?]+[.!?]+/g) || [cleanMessage];
+      const finalChunks = messageChunks.slice(0, 3); // Máximo 3 mensagens
       
-      console.log(`📦 [${analysis.id}] Enviando ${messageChunks.length} mensagens com delays`);
+      console.log(`📦 [${analysis.id}] Enviando ${finalChunks.length} mensagem(ns)`);
 
       // Enviar cada chunk com delay simulando digitação humana
-      for (let i = 0; i < messageChunks.length; i++) {
-        const chunk = messageChunks[i].trim();
+      for (let i = 0; i < finalChunks.length; i++) {
+        const chunk = finalChunks[i].trim();
+        if (!chunk) continue;
         
-        // Delay entre mensagens: 1.5s a 3s (aleatório)
+        // Delay entre mensagens: 1.5s a 2.5s (aleatório)
         if (i > 0) {
-          const delay = 1500 + Math.random() * 1500;
-          console.log(`⏱️ [${analysis.id}] Aguardando ${Math.round(delay)}ms antes da próxima mensagem...`);
+          const delay = 1500 + Math.random() * 1000;
+          console.log(`⏱️ [${analysis.id}] Aguardando ${Math.round(delay)}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
 
@@ -368,22 +400,25 @@ MÁXIMO: 3 linhas curtas separadas por \\n`;
           throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
         }
 
-        console.log(`📤 [${analysis.id}] Chunk ${i + 1}/${messageChunks.length} enviado: "${chunk.substring(0, 30)}..."`);
+        const truncated = chunk.substring(0, 40);
+        console.log(`📤 [${analysis.id}] Mensagem ${i + 1}/${finalChunks.length}: "${truncated}..."`);
       }
 
-      // Salvar mensagem da IA (mensagem completa, não chunks individuais)
+      // Salvar mensagem da IA (mensagem completa)
       await supabase.from('conversation_messages').insert({
         analysis_id: analysis.id,
         role: 'ai',
-        content: cleanMessage, // Mensagem completa
+        content: cleanMessage,
         metadata: { 
           processed: true,
           order: currentQuestionIndex + 1,
           expected_info: nextQuestion?.expected_info || 'conversa livre',
           grouped_responses: unprocessedMessages.length,
           is_freestyle: isFreestyle,
-          chunks_sent: messageChunks.length,
-          ssp_version: 'v3.0'
+          chunks_sent: finalChunks.length,
+          ssp_version: 'v3.0',
+          ai_questions: aiQuestionsCount + 1,
+          emoji_count: emojiCount
         }
       });
 
@@ -395,13 +430,31 @@ MÁXIMO: 3 linhas curtas separadas por \\n`;
           .eq('id', msg.id);
       }
 
-      // Atualizar last_message_at
-      await supabase
-        .from('analysis_requests')
-        .update({ last_message_at: new Date().toISOString() })
-        .eq('id', analysis.id);
+      // Atualizar status - se finalizou, mudar para processing
+      if (shouldFinish) {
+        console.log(`✅ [${analysis.id}] Conversa finalizada - iniciando análise`);
+        
+        await supabase
+          .from('analysis_requests')
+          .update({
+            status: 'processing',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', analysis.id);
 
-      return { analysis_id: analysis.id, action: 'responded', grouped: unprocessedMessages.length };
+        // Invocar geração de métricas
+        await supabase.functions.invoke('generate-metrics', {
+          body: { analysis_id: analysis.id }
+        });
+      } else {
+        // Apenas atualizar last_message_at
+        await supabase
+          .from('analysis_requests')
+          .update({ last_message_at: new Date().toISOString() })
+          .eq('id', analysis.id);
+      }
+
+      return { analysis_id: analysis.id, action: 'responded', grouped: unprocessedMessages.length, finished: shouldFinish };
     }
 
     // CENÁRIO B: Cliente não respondeu (NUDGES)
