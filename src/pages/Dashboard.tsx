@@ -5,9 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SalesAnalysisTab } from "@/components/SalesAnalysisTab";
 import { LogOut, Plus, Eye } from "lucide-react";
 
 interface Analysis {
@@ -168,77 +166,64 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        {/* Tabs */}
-        <Tabs defaultValue="analyses" className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
-            <TabsTrigger value="analyses">Minhas Análises</TabsTrigger>
-            <TabsTrigger value="sales">Análise de Vendas</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="analyses">
-            <Card className="shadow-medium">
-              <CardHeader>
-                <CardTitle>Análises Recentes</CardTitle>
-                <CardDescription>
-                  Suas últimas análises de cliente oculto
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {analyses.length === 0 ? (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground mb-4">
-                      Nenhuma análise ainda
-                    </p>
-                    <Button onClick={() => navigate("/dashboard/new")}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Criar Primeira Análise
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {analyses.map((analysis) => (
-                      <div
-                        key={analysis.id}
-                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
-                        onClick={() => navigate(`/dashboard/analysis/${analysis.id}`)}
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="font-medium">{analysis.target_phone}</p>
-                            {analysis.company_name && (
-                              <span className="text-sm text-muted-foreground">
-                                • {analysis.company_name}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {new Date(analysis.created_at).toLocaleDateString('pt-BR', {
-                              day: '2-digit',
-                              month: 'short',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {getStatusBadge(analysis.status)}
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </div>
+        {/* Análises Recentes */}
+        <Card className="shadow-medium">
+          <CardHeader>
+            <CardTitle>Análises Recentes</CardTitle>
+            <CardDescription>
+              Suas últimas análises de cliente oculto
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {analyses.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground mb-4">
+                  Nenhuma análise ainda
+                </p>
+                <Button onClick={() => navigate("/dashboard/new")}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Criar Primeira Análise
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {analyses.map((analysis) => (
+                  <div
+                    key={analysis.id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/dashboard/analysis/${analysis.id}`)}
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-medium">{analysis.target_phone}</p>
+                        {analysis.company_name && (
+                          <span className="text-sm text-muted-foreground">
+                            • {analysis.company_name}
+                          </span>
+                        )}
                       </div>
-                    ))}
+                      <p className="text-sm text-muted-foreground">
+                        {new Date(analysis.created_at).toLocaleDateString('pt-BR', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {getStatusBadge(analysis.status)}
+                      <Button variant="ghost" size="sm">
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="sales">
-            <SalesAnalysisTab analyses={analyses} userId={user.id} />
-          </TabsContent>
-        </Tabs>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </main>
     </div>
   );
