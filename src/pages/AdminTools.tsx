@@ -10,7 +10,28 @@ const AdminTools = () => {
   const [token, setToken] = useState("");
   const [email, setEmail] = useState("");
   const [loadingReset, setLoadingReset] = useState(false);
+  const [loadingResetData, setLoadingResetData] = useState(false);
   const [loadingPromote, setLoadingPromote] = useState(false);
+
+  const handleResetData = async () => {
+    if (!token) {
+      toast.error("Informe o RESET_TOKEN");
+      return;
+    }
+    try {
+      setLoadingResetData(true);
+      const { data, error } = await supabase.functions.invoke('admin-reset-data', {
+        headers: { 'x-reset-token': token },
+      });
+      if (error) throw error;
+      toast.success('Conversas e análises resetadas com sucesso!');
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || 'Falha ao resetar dados');
+    } finally {
+      setLoadingResetData(false);
+    }
+  };
 
   const handleReset = async () => {
     if (!token) {
@@ -23,7 +44,7 @@ const AdminTools = () => {
         headers: { 'x-reset-token': token },
       });
       if (error) throw error;
-      toast.success(`Reset concluído: ${data?.deletedUsers ?? 0} usuários removidos`);
+      toast.success(`Reset completo: ${data?.deletedUsers ?? 0} usuários removidos`);
     } catch (e: any) {
       console.error(e);
       toast.error(e?.message || 'Falha ao resetar');
@@ -65,8 +86,12 @@ const AdminTools = () => {
             <Input id="token" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Cole o RESET_TOKEN" />
           </div>
 
-          <Button onClick={handleReset} disabled={loadingReset} className="w-full">
-            {loadingReset ? 'Resetando...' : 'Resetar TODOS os usuários e dados'}
+          <Button onClick={handleResetData} disabled={loadingResetData} variant="outline" className="w-full">
+            {loadingResetData ? 'Resetando...' : 'Resetar apenas conversas e análises (mantém usuários)'}
+          </Button>
+
+          <Button onClick={handleReset} disabled={loadingReset} variant="destructive" className="w-full">
+            {loadingReset ? 'Resetando...' : 'Resetar TUDO (usuários + dados)'}
           </Button>
 
           <div className="h-px bg-border" />
