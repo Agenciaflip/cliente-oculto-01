@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer";
@@ -14,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
 import { supabase } from "@/integrations/supabase/client";
-import { LogOut, Loader2, Users, BarChart3, Activity, CheckCircle, Search, Plus, TrendingUp, Target, Award, Eye } from "lucide-react";
+import { LogOut, Loader2, Users, BarChart3, Activity, CheckCircle, Search, Plus, TrendingUp, Target, Award, Eye, MessageSquare, Send, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -77,6 +78,26 @@ interface SalesAnalysisData {
   createdAt: string;
 }
 
+interface Ticket {
+  id: string;
+  user_id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  created_at: string;
+  updated_at: string;
+  profiles?: { full_name: string | null };
+}
+
+interface Message {
+  id: string;
+  ticket_id: string;
+  sender_id: string;
+  sender_type: string;
+  message: string;
+  created_at: string;
+}
+
 const Admin = () => {
   const { user, logout } = useAuth();
   const { isAdmin, loading: adminLoading } = useAdminCheck();
@@ -85,7 +106,12 @@ const Admin = () => {
   const [users, setUsers] = useState<UserData[]>([]);
   const [analyses, setAnalyses] = useState<AnalysisData[]>([]);
   const [salesAnalyses, setSalesAnalyses] = useState<SalesAnalysisData[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Filtros
   const [userSearch, setUserSearch] = useState("");
@@ -96,6 +122,7 @@ const Admin = () => {
   const [salesSearch, setSalesSearch] = useState("");
   const [salesScoreFilter, setSalesScoreFilter] = useState("all");
   const [salesMethodologyFilter, setSalesMethodologyFilter] = useState("all");
+  const [supportStatusFilter, setSupportStatusFilter] = useState("all");
   
   // Dialog de adicionar créditos
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -111,8 +138,20 @@ const Admin = () => {
     if (!adminLoading && isAdmin) {
       loadData();
       loadSalesAnalyses();
+      loadTickets();
     }
-  }, [isAdmin, adminLoading]);
+  }, [isAdmin, adminLoading, supportStatusFilter]);
+
+  useEffect(() => {
+    if (selectedTicket) {
+      loadMessages(selectedTicket.id);
+      subscribeToMessages(selectedTicket.id);
+    }
+  }, [selectedTicket]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const loadData = async () => {
     try {
@@ -283,6 +322,118 @@ const Admin = () => {
     } catch (error) {
       console.error('Erro ao carregar análises de vendas:', error);
       toast.error('Erro ao carregar análises de vendas');
+    }
+  };
+
+  const loadTickets = async () => {
+    try {
+      let query = supabase
+        .from("support_tickets")
+        .select(`
+          *,
+          profiles!inner(full_name)
+        `)
+        .order("updated_at", { ascending: false });
+
+      if (supportStatusFilter !== "all") {
+        query = query.eq("status", supportStatusFilter);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      setTickets(data || []);
+    } catch (error) {
+      console.error('Erro ao carregar tickets:', error);
+      toast.error('Erro ao carregar tickets');
+    }
+  };
+
+  const loadMessages = async (ticketId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("support_messages")
+        .select("*")
+        .eq("ticket_id", ticketId)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      setMessages(data || []);
+    } catch (error) {
+      console.error('Erro ao carregar mensagens:', error);
+    }
+  };
+
+  const subscribeToMessages = (ticketId: string) => {
+    const channel = supabase
+      .channel(`admin-ticket-${ticketId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "support_messages",
+          filter: `ticket_id=eq.${ticketId}`,
+        },
+        (payload) => {
+          setMessages((prev) => [...prev, payload.new as Message]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !selectedTicket) return;
+
+    try {
+      const { error } = await supabase.from("support_messages").insert({
+        ticket_id: selectedTicket.id,
+        sender_id: user!.id,
+        sender_type: "admin",
+        message: newMessage.trim(),
+      });
+
+      if (error) throw error;
+
+      // Atualizar status para in_progress se estiver open
+      if (selectedTicket.status === "open") {
+        await supabase
+          .from("support_tickets")
+          .update({ status: "in_progress" })
+          .eq("id", selectedTicket.id);
+        
+        setSelectedTicket({ ...selectedTicket, status: "in_progress" });
+        loadTickets();
+      }
+      setNewMessage("");
+      toast.success("Mensagem enviada!");
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+      toast.error("Erro ao enviar mensagem");
+    }
+  };
+
+  const handleUpdateTicketStatus = async (ticketId: string, status: string) => {
+    try {
+      const { error } = await supabase
+        .from("support_tickets")
+        .update({ status })
+        .eq("id", ticketId);
+
+      if (error) throw error;
+
+      if (selectedTicket?.id === ticketId) {
+        setSelectedTicket({ ...selectedTicket, status });
+      }
+      loadTickets();
+      toast.success("Status atualizado!");
+    } catch (error) {
+      console.error('Erro ao atualizar status:', error);
+      toast.error("Erro ao atualizar status");
     }
   };
 
@@ -521,6 +672,10 @@ const Admin = () => {
             <TabsTrigger value="users">Usuários</TabsTrigger>
             <TabsTrigger value="analyses">Análises</TabsTrigger>
             <TabsTrigger value="sales">Análises de Vendas</TabsTrigger>
+            <TabsTrigger value="support">
+              <MessageSquare className="h-4 w-4 mr-2" />
+              Suporte ({tickets.filter(t => t.status === 'open').length})
+            </TabsTrigger>
           </TabsList>
 
           {/* Tab: Usuários */}
@@ -960,6 +1115,165 @@ const Admin = () => {
                 </Table>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Tab: Suporte */}
+          <TabsContent value="support" className="space-y-4">
+            <div className="grid grid-cols-3 gap-6">
+              {/* Lista de Tickets */}
+              <Card className="col-span-1">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MessageSquare className="h-5 w-5" />
+                    Tickets
+                  </CardTitle>
+                  <Select value={supportStatusFilter} onValueChange={setSupportStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Filtrar por status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="open">Abertos</SelectItem>
+                      <SelectItem value="in_progress">Em Andamento</SelectItem>
+                      <SelectItem value="closed">Fechados</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </CardHeader>
+                <CardContent className="space-y-2 max-h-[600px] overflow-y-auto">
+                  {tickets.map((ticket) => (
+                    <div
+                      key={ticket.id}
+                      onClick={() => setSelectedTicket(ticket)}
+                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedTicket?.id === ticket.id
+                          ? "bg-accent border-primary"
+                          : "hover:bg-accent/50"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-1">
+                        <p className="font-medium text-sm flex-1">{ticket.subject}</p>
+                        {ticket.status === 'open' && <AlertCircle className="h-4 w-4 text-green-500" />}
+                        {ticket.status === 'in_progress' && <Clock className="h-4 w-4 text-yellow-500" />}
+                        {ticket.status === 'closed' && <CheckCircle2 className="h-4 w-4 text-gray-500" />}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          {ticket.status === 'open' ? 'Aberto' : ticket.status === 'in_progress' ? 'Em Andamento' : 'Fechado'}
+                        </Badge>
+                        <span className={`text-xs ${
+                          ticket.priority === 'urgent' ? 'text-red-500' :
+                          ticket.priority === 'high' ? 'text-orange-500' :
+                          ticket.priority === 'normal' ? 'text-gray-500' : 'text-blue-500'
+                        }`}>
+                          {ticket.priority}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {ticket.profiles?.full_name || 'Usuário'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {format(new Date(ticket.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                      </p>
+                    </div>
+                  ))}
+                  {tickets.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">
+                      Nenhum ticket encontrado
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Chat do Ticket */}
+              <Card className="col-span-2">
+                {selectedTicket ? (
+                  <>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>{selectedTicket.subject}</CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            {selectedTicket.profiles?.full_name || 'Usuário'} • Criado em {format(new Date(selectedTicket.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Select
+                            value={selectedTicket.status}
+                            onValueChange={(value) => handleUpdateTicketStatus(selectedTicket.id, value)}
+                          >
+                            <SelectTrigger className="w-40">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="open">Aberto</SelectItem>
+                              <SelectItem value="in_progress">Em Andamento</SelectItem>
+                              <SelectItem value="closed">Fechado</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="flex flex-col h-[500px]">
+                      {/* Messages */}
+                      <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+                        {messages.map((msg) => (
+                          <div
+                            key={msg.id}
+                            className={`flex ${
+                              msg.sender_type === "admin" ? "justify-end" : "justify-start"
+                            }`}
+                          >
+                            <div
+                              className={`max-w-[80%] p-3 rounded-lg ${
+                                msg.sender_type === "admin"
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-muted"
+                              }`}
+                            >
+                              <p className="text-sm font-medium mb-1">
+                                {msg.sender_type === "admin" ? "Você (Admin)" : "Usuário"}
+                              </p>
+                              <p className="text-sm">{msg.message}</p>
+                              <p className="text-xs opacity-70 mt-1">
+                                {format(new Date(msg.created_at), "HH:mm", { locale: ptBR })}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={messagesEndRef} />
+                      </div>
+
+                      {/* Input */}
+                      {selectedTicket.status !== "closed" && (
+                        <div className="flex gap-2 border-t pt-4">
+                          <Textarea
+                            placeholder="Digite sua resposta..."
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            onKeyPress={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSendMessage();
+                              }
+                            }}
+                            rows={3}
+                          />
+                          <Button onClick={handleSendMessage} size="icon">
+                            <Send className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </CardContent>
+                  </>
+                ) : (
+                  <CardContent className="flex items-center justify-center h-[600px]">
+                    <p className="text-muted-foreground">
+                      Selecione um ticket para visualizar
+                    </p>
+                  </CardContent>
+                )}
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </main>
