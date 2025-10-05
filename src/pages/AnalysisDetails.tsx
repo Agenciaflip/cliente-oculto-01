@@ -5,12 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles, Download } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
 
 const AnalysisDetails = () => {
   const { id } = useParams();
@@ -21,8 +19,6 @@ const AnalysisDetails = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [salesAnalysis, setSalesAnalysis] = useState<any>(null);
   const [generatingSales, setGeneratingSales] = useState(false);
-  const [generatingPDF, setGeneratingPDF] = useState(false);
-  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) {
@@ -302,19 +298,7 @@ const AnalysisDetails = () => {
                 {analysis.company_name && ` • ${analysis.company_name}`}
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              {getStatusBadge(analysis.status)}
-              {analysis.status === 'completed' && (
-                <Button
-                  onClick={() => window.print()}
-                  className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700"
-                  disabled={generatingPDF}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  {generatingPDF ? "Gerando..." : "Exportar PDF"}
-                </Button>
-              )}
-            </div>
+            {getStatusBadge(analysis.status)}
           </div>
         </div>
       </header>
