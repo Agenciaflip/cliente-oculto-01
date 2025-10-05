@@ -51,15 +51,20 @@ serve(async (req) => {
     const messageText = messageData.message?.conversation || 
                        messageData.message?.extendedTextMessage?.text || '';
 
-    if (!phoneNumber || !messageText) {
-      console.log('Missing phone or message text');
+    // Validar mensagem válida do cliente
+    const isValidMessage = phoneNumber && 
+                          messageText && 
+                          messageText.trim().length > 0;
+
+    if (!isValidMessage) {
+      console.log('Missing phone or message text, or empty message');
       return new Response(
         JSON.stringify({ message: 'Invalid payload' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log(`Received message from ${phoneNumber}: ${messageText}`);
+    console.log(`✅ Mensagem válida recebida de ${phoneNumber}: ${messageText}`);
 
     // Criar variações do número para buscar análise ativa
     const phoneVariations = [
@@ -109,12 +114,37 @@ serve(async (req) => {
       .update({ last_message_at: new Date().toISOString() })
       .eq('id', activeAnalysis.id);
 
-    console.log(`💾 Mensagem salva com processed: false - será processada pelo monitor`);
+    console.log(`💾 Mensagem salva com processed: false`);
+
+    // ✅ SEMPRE invocar monitor após salvar mensagem do cliente
+    console.log(`🔔 Invocando monitor-conversations para analysis_id: ${activeAnalysis.id}`);
+    
+    try {
+      const monitorResponse = await fetch(
+        `${supabaseUrl}/functions/v1/monitor-conversations`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ analysis_id: activeAnalysis.id })
+        }
+      );
+
+      if (!monitorResponse.ok) {
+        console.error(`⚠️ Erro ao invocar monitor: ${monitorResponse.status}`);
+      } else {
+        console.log(`✅ Monitor invocado com sucesso`);
+      }
+    } catch (monitorError) {
+      console.error('⚠️ Erro ao invocar monitor:', monitorError);
+    }
 
     return new Response(
       JSON.stringify({ 
         success: true,
-        message: 'Message saved, will be processed by monitor'
+        message: 'Message saved and monitor triggered'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
