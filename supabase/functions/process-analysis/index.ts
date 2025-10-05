@@ -434,17 +434,31 @@ CRITICAL: Primeira mensagem deve ter 2-3 linhas curtas, separadas por \\n, super
     }
 
     if (!sendOk) {
-      // Atualizar status para failed com informação detalhada
+      // Criar objeto de erro simplificado (evitar MaxDepthReached)
+      const errorDetails: any = {
+        error: 'Número não encontrado no WhatsApp',
+        tested_variations: uniqueCandidates,
+        timestamp: new Date().toISOString()
+      };
+
+      // Adicionar detalhes do erro de forma simplificada
+      if (lastErrorResponse) {
+        errorDetails.api_error = {
+          status: lastErrorResponse.status || 'unknown',
+          message: typeof lastErrorResponse.response?.message === 'string' 
+            ? lastErrorResponse.response.message 
+            : 'Número não existe no WhatsApp'
+        };
+      } else if (lastErr) {
+        errorDetails.api_error = lastErr.substring(0, 200); // Limitar tamanho
+      }
+
+      // Atualizar status para failed com informação simplificada
       await supabase
         .from('analysis_requests')
         .update({ 
           status: 'failed',
-          metrics: {
-            error: 'Número não encontrado no WhatsApp',
-            details: lastErrorResponse || lastErr,
-            tested_variations: uniqueCandidates,
-            timestamp: new Date().toISOString()
-          }
+          metrics: errorDetails
         })
         .eq('id', pendingAnalysis.id);
       

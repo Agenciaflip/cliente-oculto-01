@@ -200,10 +200,14 @@ const AnalysisDetails = () => {
                 {analysis.metrics?.error || 'Erro desconhecido durante o processamento'}
               </p>
               
-              {analysis.metrics?.details && (
+              {analysis.metrics?.api_error && (
                 <div className="mt-3">
                   <p className="text-sm font-semibold mb-1">Detalhes do erro:</p>
-                  <p className="text-sm opacity-90">{analysis.metrics.details}</p>
+                  <p className="text-sm opacity-90">
+                    {typeof analysis.metrics.api_error === 'string' 
+                      ? analysis.metrics.api_error 
+                      : analysis.metrics.api_error.message || JSON.stringify(analysis.metrics.api_error)}
+                  </p>
                 </div>
               )}
               
