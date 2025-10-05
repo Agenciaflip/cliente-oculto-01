@@ -68,6 +68,9 @@ const NewAnalysis = () => {
     const formData = new FormData(e.currentTarget);
     const targetPhone = formData.get("target_phone") as string;
     const companyName = formData.get("company_name") as string;
+    const cnpj = formData.get("cnpj") as string;
+    const city = formData.get("city") as string;
+    const businessSegment = formData.get("business_segment") as string;
     const persona = formData.get("persona") as string;
     const analysisDepth = formData.get("analysis_depth") as string;
 
@@ -79,9 +82,13 @@ const NewAnalysis = () => {
           user_id: user.id,
           target_phone: targetPhone,
           company_name: companyName || null,
+          cnpj: cnpj || null,
+          city: city,
+          business_segment: businessSegment,
           persona: persona as any,
           analysis_depth: analysisDepth,
           status: "pending" as any,
+          processing_stage: "awaiting_research",
         }])
         .select()
         .single();
@@ -98,13 +105,20 @@ const NewAnalysis = () => {
 
       toast({
         title: "Análise criada!",
-        description: "Sua análise foi iniciada. Redirecionando...",
+        description: "Processamento iniciado automaticamente...",
       });
 
-      // Redirecionar para a página de detalhes da análise
-      setTimeout(() => {
-        navigate(`/dashboard/analysis/${analysis.id}`);
-      }, 1000);
+      // 🚀 TRIGGER AUTOMÁTICO - Invocar process-analysis
+      supabase.functions.invoke('process-analysis', {
+        body: { analysis_id: analysis.id }
+      }).then(() => {
+        console.log('Process-analysis invoked successfully');
+      }).catch((err) => {
+        console.error('Error invoking process-analysis:', err);
+      });
+
+      // Redirecionar IMEDIATAMENTE para a página de detalhes
+      navigate(`/dashboard/analysis/${analysis.id}`);
 
     } catch (error: any) {
       console.error("Error creating analysis:", error);
@@ -113,7 +127,6 @@ const NewAnalysis = () => {
         description: error.message,
         variant: "destructive",
       });
-    } finally {
       setIsLoading(false);
     }
   };
@@ -188,11 +201,72 @@ const NewAnalysis = () => {
                     id="company_name"
                     name="company_name"
                     type="text"
-                    placeholder="Ex: Empresa X Ltda"
+                    placeholder="Ex: Della Panificadora"
                     disabled={isLoading}
                   />
                   <p className="text-xs text-muted-foreground">
                     Se deixar vazio, a IA vai pesquisar automaticamente
+                  </p>
+                </div>
+
+                {/* CNPJ (opcional) */}
+                <div className="space-y-2">
+                  <Label htmlFor="cnpj">
+                    CNPJ (Opcional)
+                  </Label>
+                  <Input
+                    id="cnpj"
+                    name="cnpj"
+                    type="text"
+                    placeholder="00.000.000/0000-00"
+                    disabled={isLoading}
+                    maxLength={18}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Ajuda a encontrar a empresa específica
+                  </p>
+                </div>
+
+                {/* Cidade (obrigatório) */}
+                <div className="space-y-2">
+                  <Label htmlFor="city">
+                    Cidade <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="city"
+                    name="city"
+                    type="text"
+                    placeholder="Ex: São Paulo, Goiânia, Rio de Janeiro"
+                    required
+                    disabled={isLoading}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Cidade onde a empresa está localizada
+                  </p>
+                </div>
+
+                {/* Segmento de Atuação (obrigatório) */}
+                <div className="space-y-2">
+                  <Label htmlFor="business_segment">
+                    Segmento de Atuação <span className="text-destructive">*</span>
+                  </Label>
+                  <Select name="business_segment" required disabled={isLoading}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o segmento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="alimentacao">Alimentação (Restaurantes, Padarias, etc)</SelectItem>
+                      <SelectItem value="saude">Saúde (Clínicas, Consultórios, etc)</SelectItem>
+                      <SelectItem value="beleza">Beleza (Salões, Barbearias, etc)</SelectItem>
+                      <SelectItem value="educacao">Educação (Escolas, Cursos, etc)</SelectItem>
+                      <SelectItem value="comercio">Comércio (Lojas, Varejo, etc)</SelectItem>
+                      <SelectItem value="servicos">Serviços (Manutenção, Consultoria, etc)</SelectItem>
+                      <SelectItem value="tecnologia">Tecnologia (TI, Software, etc)</SelectItem>
+                      <SelectItem value="outros">Outros</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Ajuda a criar perguntas mais relevantes
                   </p>
                 </div>
 

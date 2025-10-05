@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, Loader2, RefreshCw, AlertCircle } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 const AnalysisDetails = () => {
   const { id } = useParams();
@@ -113,6 +114,71 @@ const AnalysisDetails = () => {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  // Componente de Etapa Individual
+  const ProcessingStage = ({ 
+    icon, 
+    title, 
+    description, 
+    status, 
+    isActive 
+  }: { 
+    icon: React.ReactNode; 
+    title: string; 
+    description: string; 
+    status: 'pending' | 'active' | 'completed' | 'error'; 
+    isActive: boolean;
+  }) => {
+    const getIcon = () => {
+      if (status === 'completed') return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+      if (status === 'error') return <XCircle className="h-5 w-5 text-destructive" />;
+      if (isActive) return <Loader2 className="h-5 w-5 animate-spin text-primary" />;
+      return <Circle className="h-5 w-5 text-muted-foreground" />;
+    };
+
+    return (
+      <div className="flex items-start gap-3">
+        <div className="mt-1">{getIcon()}</div>
+        <div className="flex-1">
+          <p className={cn(
+            "font-medium",
+            status === 'completed' && "text-green-600",
+            isActive && "text-primary",
+            status === 'pending' && "text-muted-foreground",
+            status === 'error' && "text-destructive"
+          )}>
+            {title}
+          </p>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+      </div>
+    );
+  };
+
+  // Função para determinar status de cada etapa
+  const getStageStatus = (targetStage: string, currentStage: string) => {
+    const stageOrder = [
+      'awaiting_research',
+      'researching',
+      'generating_strategy',
+      'ready_to_send',
+      'sending',
+      'chatting',
+      'completed'
+    ];
+    
+    // Se a análise falhou, marcar como erro
+    if (analysis.status === 'failed') {
+      return 'error';
+    }
+    
+    const targetIndex = stageOrder.indexOf(targetStage);
+    const currentIndex = stageOrder.indexOf(currentStage);
+    
+    if (currentIndex > targetIndex) return 'completed';
+    if (currentIndex === targetIndex) return 'active';
+    return 'pending';
   };
 
   const getStatusBadge = (status: string) => {
@@ -242,6 +308,60 @@ const AnalysisDetails = () => {
           </Alert>
         )}
         
+        {/* 🎯 NOVO: Card de Progresso Visual */}
+        {(analysis.status === 'pending' || analysis.status === 'processing' || analysis.status === 'chatting') && (
+          <Card className="mb-6 shadow-medium border-primary/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                Progresso da Análise
+              </CardTitle>
+              <CardDescription>
+                Acompanhe cada etapa do processamento em tempo real
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              
+              {/* Etapa 1: Pesquisa Perplexity */}
+              <ProcessingStage
+                icon={<Search />}
+                title="Pesquisando empresa"
+                description="Coletando informações sobre o concorrente"
+                status={getStageStatus('researching', analysis.processing_stage || 'awaiting_research')}
+                isActive={analysis.processing_stage === 'researching'}
+              />
+              
+              {/* Etapa 2: Estratégia OpenAI */}
+              <ProcessingStage
+                icon={<Brain />}
+                title="Gerando estratégia"
+                description="Criando perguntas personalizadas"
+                status={getStageStatus('generating_strategy', analysis.processing_stage || 'awaiting_research')}
+                isActive={analysis.processing_stage === 'generating_strategy'}
+              />
+              
+              {/* Etapa 3: Enviando Mensagem */}
+              <ProcessingStage
+                icon={<Send />}
+                title="Enviando mensagem"
+                description="Iniciando conversa no WhatsApp"
+                status={getStageStatus('sending', analysis.processing_stage || 'awaiting_research')}
+                isActive={analysis.processing_stage === 'sending'}
+              />
+              
+              {/* Etapa 4: Conversando */}
+              <ProcessingStage
+                icon={<MessageCircle />}
+                title="Conversando"
+                description="Cliente oculto está coletando dados"
+                status={getStageStatus('chatting', analysis.processing_stage || 'awaiting_research')}
+                isActive={analysis.processing_stage === 'chatting'}
+              />
+              
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Info da Análise */}
           <div className="lg:col-span-1 space-y-6">
@@ -258,6 +378,24 @@ const AnalysisDetails = () => {
                   <div>
                     <p className="text-sm text-muted-foreground">Empresa</p>
                     <p className="font-medium">{analysis.company_name}</p>
+                  </div>
+                )}
+                {analysis.city && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Cidade</p>
+                    <p className="font-medium">{analysis.city}</p>
+                  </div>
+                )}
+                {analysis.business_segment && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Segmento</p>
+                    <p className="font-medium capitalize">{analysis.business_segment}</p>
+                  </div>
+                )}
+                {analysis.cnpj && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">CNPJ</p>
+                    <p className="font-medium">{analysis.cnpj}</p>
                   </div>
                 )}
                 <div>

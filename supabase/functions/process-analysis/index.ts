@@ -131,7 +131,40 @@ async function processAnalysis(
     // ETAPA 1: Pesquisar empresa no Perplexity (se necessário)
     let companyInfo = pendingAnalysis.research_data;
     if (!companyInfo && perplexityKey) {
-      console.log('Researching company with Perplexity...');
+      console.log(`🔍 [${pendingAnalysis.id}] Pesquisando empresa no Perplexity...`);
+      
+      // Atualizar processing_stage para 'researching'
+      await supabase
+        .from('analysis_requests')
+        .update({ processing_stage: 'researching' })
+        .eq('id', pendingAnalysis.id);
+      
+      // Construir prompt melhorado com contexto completo
+      const perplexityPrompt = `Pesquise informações ESPECÍFICAS sobre esta empresa:
+
+📍 IDENTIFICAÇÃO:
+- Nome: ${pendingAnalysis.company_name || 'não informado'}
+- CNPJ: ${pendingAnalysis.cnpj || 'não informado'}
+- Cidade: ${pendingAnalysis.city || 'não informado'}
+- Segmento: ${pendingAnalysis.business_segment || 'não informado'}
+- Telefone WhatsApp: ${pendingAnalysis.target_phone}
+
+🎯 OBJETIVO:
+Encontrar ESPECIFICAMENTE essa empresa na cidade ${pendingAnalysis.city || 'informada'}.
+Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
+
+📊 INFORMAÇÕES NECESSÁRIAS:
+1. Endereço completo (rua, bairro, cidade)
+2. Principais produtos/serviços oferecidos
+3. Diferenciais e pontos fortes
+4. Público-alvo
+5. Reputação online (avaliações, comentários)
+6. Confirmar se o telefone está vinculado à empresa
+
+⚠️ IMPORTANTE: 
+- Seja específico e factual
+- Se não encontrar informações, seja honesto
+- Priorize dados recentes e verificáveis`;
       
       const perplexityResponse = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
@@ -144,16 +177,15 @@ async function processAnalysis(
           messages: [
             {
               role: 'system',
-              content: 'Você é um pesquisador especializado em análise de empresas. Seja conciso e objetivo.'
+              content: 'Você é um pesquisador especializado em análise de empresas brasileiras. Seja preciso, conciso e objetivo.'
             },
             {
               role: 'user',
-              content: `Pesquise informações sobre a empresa "${pendingAnalysis.company_name || 'empresa'}" com o telefone ${pendingAnalysis.target_phone}. 
-              Retorne: segmento, principais serviços/produtos, diferenciais, público-alvo e qualquer informação relevante para um cliente oculto.`
+              content: perplexityPrompt
             }
           ],
           temperature: 0.2,
-          max_tokens: 500,
+          max_tokens: 600,
         }),
       });
 
@@ -161,21 +193,30 @@ async function processAnalysis(
         const perplexityData = await perplexityResponse.json();
         companyInfo = {
           summary: perplexityData.choices[0].message.content,
-          researched_at: new Date().toISOString()
+          researched_at: new Date().toISOString(),
+          city: pendingAnalysis.city,
+          segment: pendingAnalysis.business_segment,
+          cnpj: pendingAnalysis.cnpj
         };
 
+        console.log(`✅ [${pendingAnalysis.id}] Pesquisa Perplexity concluída`);
+
+        // Atualizar com dados da pesquisa e mudar para 'generating_strategy'
         await supabase
           .from('analysis_requests')
           .update({ 
             research_data: companyInfo,
-            status: 'researching'
+            status: 'researching',
+            processing_stage: 'generating_strategy'
           })
           .eq('id', pendingAnalysis.id);
+      } else {
+        console.warn(`⚠️ [${pendingAnalysis.id}] Perplexity falhou, continuando sem pesquisa`);
       }
     }
 
     // ETAPA 2: Gerar estratégia de perguntas com OpenAI
-    console.log('Generating questions strategy with OpenAI (gpt-4o)...');
+    console.log(`🧠 [${pendingAnalysis.id}] Gerando estratégia com OpenAI (gpt-4o)...`);
 
     const personaDescriptions = {
       interested: 'um cliente interessado e curioso, que faz perguntas naturais sobre os serviços',
@@ -328,14 +369,25 @@ CRITICAL: Primeira mensagem deve ter 2-3 linhas curtas, separadas por \\n, super
         })
       };
     }
-    // Salvar estratégia no banco
+    // Salvar estratégia no banco e atualizar processing_stage
+    console.log(`✅ [${pendingAnalysis.id}] Estratégia gerada com ${questionsStrategy.questions.length} perguntas`);
+    
     await supabase
       .from('analysis_requests')
-      .update({ questions_strategy: questionsStrategy })
+      .update({ 
+        questions_strategy: questionsStrategy,
+        processing_stage: 'ready_to_send'
+      })
       .eq('id', pendingAnalysis.id);
 
     // ETAPA 3: Enviar primeira mensagem via Evolution API
-    console.log('Sending first message via Evolution API...');
+    console.log(`📤 [${pendingAnalysis.id}] Enviando primeira mensagem via Evolution API...`);
+    
+    // Atualizar processing_stage para 'sending'
+    await supabase
+      .from('analysis_requests')
+      .update({ processing_stage: 'sending' })
+      .eq('id', pendingAnalysis.id);
 
     const firstQuestion = questionsStrategy.questions[0];
 
@@ -480,11 +532,14 @@ CRITICAL: Primeira mensagem deve ter 2-3 linhas curtas, separadas por \\n, super
       metadata: { order: 1, expected_info: firstQuestion.expected_info }
     });
 
-    // Atualizar status para chatting
+    // Atualizar status para chatting e processing_stage
+    console.log(`✅ [${pendingAnalysis.id}] Primeira mensagem enviada! Status: chatting`);
+    
     await supabase
       .from('analysis_requests')
       .update({ 
         status: 'chatting',
+        processing_stage: 'chatting',
         started_at: new Date().toISOString(),
         last_message_at: new Date().toISOString()
       })

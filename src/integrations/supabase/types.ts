@@ -46,6 +46,9 @@ export type Database = {
       analysis_requests: {
         Row: {
           analysis_depth: string
+          business_segment: string | null
+          city: string | null
+          cnpj: string | null
           company_name: string | null
           completed_at: string | null
           created_at: string
@@ -53,6 +56,7 @@ export type Database = {
           last_message_at: string | null
           metrics: Json | null
           persona: Database["public"]["Enums"]["persona_type"]
+          processing_stage: string | null
           processing_started_at: string | null
           questions_strategy: Json | null
           research_data: Json | null
@@ -65,6 +69,9 @@ export type Database = {
         }
         Insert: {
           analysis_depth?: string
+          business_segment?: string | null
+          city?: string | null
+          cnpj?: string | null
           company_name?: string | null
           completed_at?: string | null
           created_at?: string
@@ -72,6 +79,7 @@ export type Database = {
           last_message_at?: string | null
           metrics?: Json | null
           persona?: Database["public"]["Enums"]["persona_type"]
+          processing_stage?: string | null
           processing_started_at?: string | null
           questions_strategy?: Json | null
           research_data?: Json | null
@@ -84,6 +92,9 @@ export type Database = {
         }
         Update: {
           analysis_depth?: string
+          business_segment?: string | null
+          city?: string | null
+          cnpj?: string | null
           company_name?: string | null
           completed_at?: string | null
           created_at?: string
@@ -91,6 +102,7 @@ export type Database = {
           last_message_at?: string | null
           metrics?: Json | null
           persona?: Database["public"]["Enums"]["persona_type"]
+          processing_stage?: string | null
           processing_started_at?: string | null
           questions_strategy?: Json | null
           research_data?: Json | null
