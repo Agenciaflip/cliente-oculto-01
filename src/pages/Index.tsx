@@ -487,11 +487,13 @@ const Index = () => {
 
               <Button 
                 size="lg" 
-                className="bg-gradient-primary hover:opacity-90 shadow-medium text-lg h-14 px-8 w-full md:w-auto"
+                className="bg-gradient-primary hover:opacity-90 shadow-medium text-base md:text-lg h-auto py-4 px-6 md:px-8 w-full md:w-auto whitespace-normal"
                 onClick={() => navigate("/auth")}
               >
-                Analisar Meu Concorrente Agora (Grátis)
-                <ArrowRight className="ml-2 h-5 w-5" />
+                <span className="text-center">
+                  Analisar Meu Concorrente Agora (Grátis)
+                  <ArrowRight className="ml-2 h-5 w-5 inline" />
+                </span>
               </Button>
 
               <div className="mt-6 flex items-center justify-center gap-2">
