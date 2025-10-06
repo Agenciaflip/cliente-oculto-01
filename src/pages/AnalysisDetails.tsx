@@ -24,6 +24,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
   const [salesAnalysis, setSalesAnalysis] = useState<any>(null);
   const [generatingSales, setGeneratingSales] = useState(false);
   const [companyLogo, setCompanyLogo] = useState<string>("");
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -213,7 +214,19 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('🔌 Realtime subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Realtime conectado para análise', id);
+          setIsRealtimeConnected(true);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Erro no canal realtime');
+          setIsRealtimeConnected(false);
+        } else if (status === 'CLOSED') {
+          console.log('🔌 Canal realtime fechado');
+          setIsRealtimeConnected(false);
+        }
+      });
 
     return () => {
       mounted = false;
@@ -456,6 +469,11 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
             </div>
             <div className="flex items-center gap-3">
               {getStatusBadge(analysis.status)}
+              {isRealtimeConnected && (
+                <Badge variant="outline" className="text-green-600 border-green-600">
+                  🟢 Ao vivo
+                </Badge>
+              )}
               {analysis.status === 'completed' && (
                 <Button
                   onClick={() => window.print()}
