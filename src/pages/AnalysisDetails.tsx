@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,8 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
   const [salesAnalysis, setSalesAnalysis] = useState<any>(null);
   const [generatingSales, setGeneratingSales] = useState(false);
   const [companyLogo, setCompanyLogo] = useState<string>("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!id) {
@@ -55,6 +57,26 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
       }
     };
 
+    const fetchMessages = async () => {
+      try {
+        const { data: messagesData } = await supabase
+          .from("conversation_messages")
+          .select("*")
+          .eq("analysis_id", id)
+          .order("created_at", { ascending: true });
+
+        if (mounted) {
+          setMessages(messagesData || []);
+          // Auto-scroll para a última mensagem
+          setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          }, 100);
+        }
+      } catch (error) {
+        console.error("Error fetching messages:", error);
+      }
+    };
+
     const fetchAnalysis = async () => {
       try {
         // Buscar dados da análise
@@ -76,16 +98,8 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           setAnalysis(analysisData);
         }
 
-        // Buscar mensagens da conversa
-        const { data: messagesData } = await supabase
-          .from("conversation_messages")
-          .select("*")
-          .eq("analysis_id", id)
-          .order("created_at", { ascending: true });
-
-        if (mounted) {
-          setMessages(messagesData || []);
-        }
+        // Buscar mensagens
+        await fetchMessages();
 
         // Buscar análise de vendas
         const { data: salesData } = await supabase
@@ -123,7 +137,16 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
         (payload) => {
           console.log('Analysis updated:', payload);
           if (mounted && payload.new) {
+            const oldLastMessageAt = analysis && 'last_message_at' in analysis ? analysis.last_message_at : null;
+            const newLastMessageAt = payload.new && 'last_message_at' in payload.new ? payload.new.last_message_at : null;
+            
             setAnalysis(payload.new);
+            
+            // Se last_message_at mudou, refetch mensagens
+            if (oldLastMessageAt !== newLastMessageAt && newLastMessageAt !== null) {
+              console.log('last_message_at changed, refetching messages');
+              fetchMessages();
+            }
           }
         }
       )
@@ -136,13 +159,41 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           filter: `analysis_id=eq.${id}`
         },
         (payload) => {
-          console.log('New message:', payload);
+          console.log('New message inserted:', payload);
           if (mounted && payload.new) {
             setMessages(prev => {
               // Evitar duplicatas
               const exists = prev.some(msg => msg.id === payload.new.id);
               if (exists) return prev;
-              return [...prev, payload.new];
+              const newMessages = [...prev, payload.new].sort((a, b) => 
+                new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              );
+              // Auto-scroll para a última mensagem
+              setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              }, 100);
+              return newMessages;
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'conversation_messages',
+          filter: `analysis_id=eq.${id}`
+        },
+        (payload) => {
+          console.log('Message updated:', payload);
+          if (mounted && payload.new) {
+            setMessages(prev => {
+              return prev.map(msg => 
+                msg.id === payload.new.id ? payload.new : msg
+              ).sort((a, b) => 
+                new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              );
             });
           }
         }
@@ -167,8 +218,56 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
     return () => {
       mounted = false;
       supabase.removeChannel(channel);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
     };
   }, [id, navigate]);
+
+  // Polling leve para garantir sincronização quando status === "chatting"
+  useEffect(() => {
+    if (analysis?.status === "chatting") {
+      console.log("Starting polling for chatting status");
+      pollingIntervalRef.current = setInterval(async () => {
+        try {
+          const { data: messagesData } = await supabase
+            .from("conversation_messages")
+            .select("*")
+            .eq("analysis_id", id)
+            .order("created_at", { ascending: true });
+
+          if (messagesData) {
+            setMessages(prev => {
+              // Só atualizar se houver mudanças
+              if (JSON.stringify(prev) !== JSON.stringify(messagesData)) {
+                console.log("Polling detected new messages");
+                setTimeout(() => {
+                  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                }, 100);
+                return messagesData;
+              }
+              return prev;
+            });
+          }
+        } catch (error) {
+          console.error("Polling error:", error);
+        }
+      }, 3000); // A cada 3 segundos
+    } else {
+      // Limpar polling se status não for "chatting"
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [analysis?.status, id]);
 
   const handleProcessNow = async () => {
     setIsProcessing(true);
@@ -649,6 +748,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                         </div>
                       </div>
                     )}
+                    <div ref={messagesEndRef} />
                   </div>
                 )}
               </CardContent>
