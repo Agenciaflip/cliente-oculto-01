@@ -31,10 +31,12 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
       return;
     }
 
+    let mounted = true;
+
     const fetchCompanyLogo = async () => {
       try {
         const { data: session } = await supabase.auth.getSession();
-        if (!session.session?.user) return;
+        if (!session.session?.user || !mounted) return;
 
         const { data: profileData } = await supabase
           .from("profiles")
@@ -42,7 +44,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           .eq("id", session.session.user.id)
           .single();
 
-        if (profileData?.company_logo) {
+        if (profileData?.company_logo && mounted) {
           const { data: { publicUrl } } = supabase.storage
             .from("company-logos")
             .getPublicUrl(profileData.company_logo);
@@ -54,39 +56,54 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
     };
 
     const fetchAnalysis = async () => {
-      // Buscar dados da análise
-      const { data: analysisData, error: analysisError } = await supabase
-        .from("analysis_requests")
-        .select("*")
-        .eq("id", id)
-        .single();
+      try {
+        // Buscar dados da análise
+        const { data: analysisData, error: analysisError } = await supabase
+          .from("analysis_requests")
+          .select("*")
+          .eq("id", id)
+          .single();
 
-      if (analysisError) {
-        console.error("Error fetching analysis:", analysisError);
-        navigate("/dashboard");
-        return;
+        if (analysisError) {
+          console.error("Error fetching analysis:", analysisError);
+          if (mounted) {
+            navigate("/dashboard");
+          }
+          return;
+        }
+
+        if (mounted) {
+          setAnalysis(analysisData);
+        }
+
+        // Buscar mensagens da conversa
+        const { data: messagesData } = await supabase
+          .from("conversation_messages")
+          .select("*")
+          .eq("analysis_id", id)
+          .order("created_at", { ascending: true });
+
+        if (mounted) {
+          setMessages(messagesData || []);
+        }
+
+        // Buscar análise de vendas
+        const { data: salesData } = await supabase
+          .from("sales_analysis")
+          .select("*")
+          .eq("analysis_id", id)
+          .maybeSingle();
+
+        if (mounted) {
+          setSalesAnalysis(salesData);
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
-
-      setAnalysis(analysisData);
-
-      // Buscar mensagens da conversa
-      const { data: messagesData } = await supabase
-        .from("conversation_messages")
-        .select("*")
-        .eq("analysis_id", id)
-        .order("created_at", { ascending: true });
-
-      setMessages(messagesData || []);
-
-      // Buscar análise de vendas
-      const { data: salesData } = await supabase
-        .from("sales_analysis")
-        .select("*")
-        .eq("analysis_id", id)
-        .maybeSingle();
-
-      setSalesAnalysis(salesData);
-      setIsLoading(false);
     };
 
     fetchAnalysis();
@@ -94,7 +111,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
 
     // Inscrever para updates em tempo real
     const channel = supabase
-      .channel('analysis-updates')
+      .channel(`analysis-details-${id}`)
       .on(
         'postgres_changes',
         {
@@ -105,7 +122,9 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
         },
         (payload) => {
           console.log('Analysis updated:', payload);
-          setAnalysis(payload.new);
+          if (mounted && payload.new) {
+            setAnalysis(payload.new);
+          }
         }
       )
       .on(
@@ -118,7 +137,14 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
         },
         (payload) => {
           console.log('New message:', payload);
-          setMessages(prev => [...prev, payload.new]);
+          if (mounted && payload.new) {
+            setMessages(prev => {
+              // Evitar duplicatas
+              const exists = prev.some(msg => msg.id === payload.new.id);
+              if (exists) return prev;
+              return [...prev, payload.new];
+            });
+          }
         }
       )
       .on(
@@ -131,12 +157,15 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
         },
         (payload) => {
           console.log('Sales analysis updated:', payload);
-          setSalesAnalysis(payload.new);
+          if (mounted && payload.new) {
+            setSalesAnalysis(payload.new);
+          }
         }
       )
       .subscribe();
 
     return () => {
+      mounted = false;
       supabase.removeChannel(channel);
     };
   }, [id, navigate]);
@@ -545,20 +574,34 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           <div className="lg:col-span-2">
             <Card className="shadow-medium">
               <CardHeader>
-                <CardTitle>Conversa</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageCircle className="h-5 w-5" />
+                  Conversa
+                </CardTitle>
                 <CardDescription>
                   {messages.length === 0
-                    ? "Nenhuma mensagem ainda"
-                    : `${messages.length} mensagens trocadas`}
+                    ? "Aguardando início da conversa..."
+                    : `${messages.length} mensagem${messages.length > 1 ? 's' : ''} trocada${messages.length > 1 ? 's' : ''}`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {messages.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <p>A conversa aparecerá aqui assim que iniciar</p>
+                  <div className="text-center py-12 space-y-3">
+                    {analysis.status === 'chatting' ? (
+                      <>
+                        <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+                        <p className="text-muted-foreground">Aguardando início da conversa...</p>
+                        <p className="text-xs text-muted-foreground">As mensagens aparecerão aqui em tempo real</p>
+                      </>
+                    ) : (
+                      <>
+                        <MessageCircle className="h-8 w-8 text-muted-foreground/50 mx-auto" />
+                        <p className="text-muted-foreground">A conversa aparecerá aqui assim que iniciar</p>
+                      </>
+                    )}
                   </div>
                 ) : (
-                  <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                  <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
                     {messages.map((msg) => (
                       <div
                         key={msg.id}
@@ -567,22 +610,45 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                         }`}
                       >
                         <div
-                          className={`max-w-[80%] rounded-lg p-4 ${
+                          className={`max-w-[80%] rounded-lg p-4 shadow-sm ${
                             msg.role === "ai"
-                              ? "bg-muted"
+                              ? "bg-muted border border-border"
                               : "bg-primary text-primary-foreground"
                           }`}
                         >
-                          <p className="text-sm font-medium mb-1">
-                            {msg.role === "ai" ? "Cliente Oculto AI" : "Concorrente"}
-                          </p>
-                          <p>{msg.content}</p>
-                          <p className="text-xs mt-2 opacity-70">
-                            {new Date(msg.created_at).toLocaleTimeString('pt-BR')}
+                          <div className="flex items-center gap-2 mb-2">
+                            {msg.role === "ai" ? (
+                              <>
+                                <div className="h-2 w-2 rounded-full bg-green-500" />
+                                <p className="text-xs font-semibold">Cliente Oculto AI</p>
+                              </>
+                            ) : (
+                              <>
+                                <div className="h-2 w-2 rounded-full bg-primary-foreground" />
+                                <p className="text-xs font-semibold">Concorrente</p>
+                              </>
+                            )}
+                          </div>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                          <p className="text-xs mt-2 opacity-60">
+                            {new Date(msg.created_at).toLocaleTimeString('pt-BR', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
                           </p>
                         </div>
                       </div>
                     ))}
+                    {analysis.status === 'chatting' && (
+                      <div className="flex justify-start">
+                        <div className="bg-muted border border-border rounded-lg p-4 max-w-[80%]">
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                            <p className="text-xs text-muted-foreground">Cliente Oculto AI está digitando...</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
