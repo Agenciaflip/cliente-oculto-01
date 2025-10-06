@@ -116,30 +116,8 @@ serve(async (req) => {
 
     console.log(`💾 Mensagem salva com processed: false`);
 
-    // ✅ SEMPRE invocar monitor após salvar mensagem do cliente
-    console.log(`🔔 Invocando monitor-conversations para analysis_id: ${activeAnalysis.id}`);
-    
-    try {
-      const monitorResponse = await fetch(
-        `${supabaseUrl}/functions/v1/monitor-conversations`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ analysis_id: activeAnalysis.id })
-        }
-      );
+    // Monitor será invocado via gatilho do banco (trigger). Evitando chamadas duplicadas aqui.
 
-      if (!monitorResponse.ok) {
-        console.error(`⚠️ Erro ao invocar monitor: ${monitorResponse.status}`);
-      } else {
-        console.log(`✅ Monitor invocado com sucesso`);
-      }
-    } catch (monitorError) {
-      console.error('⚠️ Erro ao invocar monitor:', monitorError);
-    }
 
     return new Response(
       JSON.stringify({ 

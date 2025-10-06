@@ -127,13 +127,38 @@ async function processConversation(
       m.role === 'user' && m.metadata?.processed === false
     );
 
-    if (unprocessedMessages.length > 0) {
-      console.log(`📦 [${analysis.id}] Agrupando ${unprocessedMessages.length} mensagens não processadas`);
+      if (unprocessedMessages.length > 0) {
+        // Atomic claim to avoid duplicate processing in parallel runs
+        const runId = crypto.randomUUID();
+        const claimedMessages: any[] = [];
+        for (const msg of unprocessedMessages) {
+          const newMeta = { ...(msg.metadata || {}), claimed_by: runId, claimed_at: new Date().toISOString() };
+          const { data: updated, error } = await supabase
+            .from('conversation_messages')
+            .update({ metadata: newMeta })
+            .eq('id', msg.id)
+            .eq('role', 'user')
+            .is('metadata->>claimed_by', null)
+            .eq('metadata->>processed', 'false')
+            .select('id, metadata')
+            .limit(1);
+          if (!error && updated && updated.length > 0) {
+            claimedMessages.push({ ...msg, metadata: updated[0].metadata });
+          }
+        }
 
-      // Agrupar conteúdo
-      const groupedContent = unprocessedMessages
-        .map((m: any) => m.content)
-        .join('\n');
+        if (claimedMessages.length === 0) {
+          console.log(`⏭️ [${analysis.id}] Mensagens já foram reivindicadas por outro worker. Pulando.`);
+          return { analysis_id: analysis.id, action: 'skipped_already_claimed' };
+        }
+
+        console.log(`📦 [${analysis.id}] Reivindicadas ${claimedMessages.length} mensagens para processamento (runId=${runId})`);
+
+        // Agrupar conteúdo apenas das mensagens reivindicadas
+        const groupedContent = claimedMessages
+          .map((m: any) => m.content)
+          .join('\n');
+
 
       // Montar histórico completo
       const conversationHistory = messages
@@ -385,13 +410,27 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
 
       console.log(`⌨️ [${analysis.id}] Mostrando "digitando..."`);
 
-      // 2. DELAY REALISTA
+      // 2. DELAY REALISTA COM HEARTBEATS DE "DIGITANDO..."
       const baseDelay = 2000; // 2 segundos base
       const charDelay = Math.min(cleanMessage.length * 20, 3000); // Máx 3s extra
       const totalDelay = baseDelay + charDelay;
 
       console.log(`⏱️ [${analysis.id}] Aguardando ${Math.round(totalDelay/1000)}s...`);
-      await new Promise(resolve => setTimeout(resolve, totalDelay));
+      const delayPromise = new Promise((resolve) => setTimeout(resolve, totalDelay));
+      const heartbeatPromise = (async () => {
+        const interval = 2500;
+        let elapsed = 0;
+        while (elapsed + interval < totalDelay) {
+          await new Promise((r) => setTimeout(r, interval));
+          elapsed += interval;
+          await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+            method: 'POST',
+            headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ number: analysis.target_phone, state: 'composing' })
+          });
+        }
+      })();
+      await Promise.all([delayPromise, heartbeatPromise]);
 
       // 3. ENVIAR UMA MENSAGEM COMPLETA
       const evolutionPayload = {
@@ -439,7 +478,7 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
           processed: true,
           order: currentQuestionIndex + 1,
           expected_info: nextQuestion?.expected_info || 'conversa livre',
-          grouped_responses: unprocessedMessages.length,
+          grouped_responses: claimedMessages.length,
           is_freestyle: isFreestyle,
           ssp_version: 'v3.0',
           ai_questions: aiQuestionsCount + 1,
@@ -449,8 +488,8 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
         }
       });
 
-      // Marcar mensagens como processadas
-      for (const msg of unprocessedMessages) {
+      // Marcar APENAS as mensagens reivindicadas como processadas
+      for (const msg of claimedMessages) {
         await supabase
           .from('conversation_messages')
           .update({ metadata: { ...msg.metadata, processed: true } })
@@ -548,6 +587,18 @@ Máximo 15 palavras. Seja natural e humano.`
           console.error(`❌ [${analysis.id}] Erro ao gerar nudge:`, error);
         }
 
+        // Enviar presence + pequeno delay antes do nudge
+        await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: analysis.target_phone, state: 'composing' })
+        });
+
+        const nudgeBase = 1500;
+        const nudgeChar = Math.min(nudgeText.length * 15, 2000);
+        const nudgeDelay = nudgeBase + nudgeChar;
+        await new Promise((r) => setTimeout(r, nudgeDelay));
+
         // Enviar nudge
         const evolutionPayload = {
           number: analysis.target_phone,
@@ -570,6 +621,12 @@ Máximo 15 palavras. Seja natural e humano.`
           throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
         }
 
+        await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: analysis.target_phone, state: 'available' })
+        });
+
         // Salvar nudge
         await supabase.from('conversation_messages').insert({
           analysis_id: analysis.id,
@@ -578,7 +635,9 @@ Máximo 15 palavras. Seja natural e humano.`
           metadata: { 
             processed: true,
             is_nudge: true,
-            nudge_type: nudgeType
+            nudge_type: nudgeType,
+            has_presence: true,
+            delay_ms: nudgeDelay
           }
         });
 
