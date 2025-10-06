@@ -190,6 +190,15 @@ async function processConversation(
 
         const systemPrompt = `MODELO SSR++ V3.0 - CLIENTE OCULTO AI
 
+CONTEXTO DA CONVERSA:
+- Cidade: ${analysis.city}
+- Empresa: ${analysis.company_name || 'empresa'}
+
+IMPORTANTE SOBRE LOCALIZAÇÃO:
+- Quando falar de endereços, SEMPRE mencionar a cidade ${analysis.city}
+- Use endereços reais dessa cidade quando necessário
+- Exemplo: "Estou em ${analysis.city}, na região do [bairro real]"
+
 IDENTIDADE: Você é Lucas/Maria, brasileiro(a) de 28-42 anos, interessado genuinamente no produto/serviço.
 
 PERSONALIDADE:
@@ -352,57 +361,74 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
         }
       }
 
-      // Limpar completamente \n do texto
+      // Limpar mensagem mantendo quebras de linha naturais
       const cleanMessage = adaptedQuestion
         .replace(/^Cliente Oculto:\s*/i, '')
         .replace(/^Você:\s*/i, '')
-        .replace(/\\n/g, ' ')
-        .replace(/\n/g, ' ')
-        .replace(/\s+/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')  // Máximo 2 quebras seguidas
         .trim();
 
-      // Quebrar mensagem em frases naturais (não por \n)
-      const messageChunks = cleanMessage.match(/[^.!?]+[.!?]+/g) || [cleanMessage];
-      const finalChunks = messageChunks.slice(0, 3); // Máximo 3 mensagens
-      
-      console.log(`📦 [${analysis.id}] Enviando ${finalChunks.length} mensagem(ns)`);
+      console.log(`📤 [${analysis.id}] Preparando para enviar mensagem`);
 
-      // Enviar cada chunk com delay simulando digitação humana
-      for (let i = 0; i < finalChunks.length; i++) {
-        const chunk = finalChunks[i].trim();
-        if (!chunk) continue;
-        
-        // Delay entre mensagens: 1.5s a 2.5s (aleatório)
-        if (i > 0) {
-          const delay = 1500 + Math.random() * 1000;
-          console.log(`⏱️ [${analysis.id}] Aguardando ${Math.round(delay)}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-
-        const evolutionPayload = {
+      // 1. ENVIAR PRESENCE "COMPOSING" (digitando...)
+      await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+        method: 'POST',
+        headers: {
+          'apikey': evolutionKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           number: analysis.target_phone,
-          text: chunk
-        };
+          state: 'composing'
+        })
+      });
 
-        const evolutionResponse = await fetch(
-          `${evolutionUrl}/message/sendText/${evolutionInstance}`,
-          {
-            method: 'POST',
-            headers: {
-              'apikey': evolutionKey,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(evolutionPayload),
-          }
-        );
+      console.log(`⌨️ [${analysis.id}] Mostrando "digitando..."`);
 
-        if (!evolutionResponse.ok) {
-          throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
+      // 2. DELAY REALISTA
+      const baseDelay = 2000; // 2 segundos base
+      const charDelay = Math.min(cleanMessage.length * 20, 3000); // Máx 3s extra
+      const totalDelay = baseDelay + charDelay;
+
+      console.log(`⏱️ [${analysis.id}] Aguardando ${Math.round(totalDelay/1000)}s...`);
+      await new Promise(resolve => setTimeout(resolve, totalDelay));
+
+      // 3. ENVIAR UMA MENSAGEM COMPLETA
+      const evolutionPayload = {
+        number: analysis.target_phone,
+        text: cleanMessage
+      };
+
+      const evolutionResponse = await fetch(
+        `${evolutionUrl}/message/sendText/${evolutionInstance}`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': evolutionKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(evolutionPayload),
         }
+      );
 
-        const truncated = chunk.substring(0, 40);
-        console.log(`📤 [${analysis.id}] Mensagem ${i + 1}/${finalChunks.length}: "${truncated}..."`);
+      if (!evolutionResponse.ok) {
+        throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
       }
+
+      console.log(`✅ [${analysis.id}] Mensagem enviada com sucesso`);
+
+      // 4. PARAR "DIGITANDO..."
+      await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+        method: 'POST',
+        headers: {
+          'apikey': evolutionKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          number: analysis.target_phone,
+          state: 'available'
+        })
+      });
 
       // Salvar mensagem da IA (mensagem completa)
       await supabase.from('conversation_messages').insert({
@@ -415,10 +441,11 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
           expected_info: nextQuestion?.expected_info || 'conversa livre',
           grouped_responses: unprocessedMessages.length,
           is_freestyle: isFreestyle,
-          chunks_sent: finalChunks.length,
           ssp_version: 'v3.0',
           ai_questions: aiQuestionsCount + 1,
-          emoji_count: emojiCount
+          emoji_count: emojiCount,
+          has_presence: true,
+          delay_ms: totalDelay
         }
       });
 
@@ -463,8 +490,8 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
         m.role === 'ai' && m.metadata?.is_nudge === true
       ).length;
 
-      // Tempos para nudges: 30s, 1min, 2min
-      const nudgeThresholds = [30000, 60000, 120000];
+      // Tempos para nudges: 2min, 5min, 10min
+      const nudgeThresholds = [120000, 300000, 600000];
       
       if (nudgeCount < 3 && timeSinceLastMessage > nudgeThresholds[nudgeCount]) {
         const nudgeTypes = ['gentle', 'moderate', 'direct'];
