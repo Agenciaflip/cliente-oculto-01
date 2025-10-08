@@ -410,10 +410,23 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
 
       console.log(`⌨️ [${analysis.id}] Mostrando "digitando..."`);
 
-      // 2. DELAY REALISTA COM HEARTBEATS DE "DIGITANDO..."
-      const baseDelay = 2000; // 2 segundos base
-      const charDelay = Math.min(cleanMessage.length * 20, 3000); // Máx 3s extra
-      const totalDelay = baseDelay + charDelay;
+      // 2. DELAY REALISTA COM HEARTBEATS DE "DIGITANDO..." - FASE 4 ATUALIZADO
+      // Import da configuração (simulado inline)
+      const calculateRealisticDelay = (messageLength: number, analysisDepth: string): number => {
+        const DEPTH_CONFIG = {
+          quick: { minDelay: 30, maxDelay: 120 },
+          intermediate: { minDelay: 60, maxDelay: 240 },
+          deep: { minDelay: 60, maxDelay: 360 }
+        };
+        const config = DEPTH_CONFIG[analysisDepth as keyof typeof DEPTH_CONFIG] || DEPTH_CONFIG.quick;
+        let min = config.minDelay;
+        let max = config.maxDelay;
+        if (messageLength <= 50) max = Math.floor((min + max) / 2);
+        else if (messageLength > 150) min = Math.floor((min + max) / 2);
+        return (Math.floor(Math.random() * (max - min + 1) + min)) * 1000;
+      };
+      
+      const totalDelay = calculateRealisticDelay(cleanMessage.length, analysis.analysis_depth);
 
       console.log(`⏱️ [${analysis.id}] Aguardando ${Math.round(totalDelay/1000)}s...`);
       const delayPromise = new Promise((resolve) => setTimeout(resolve, totalDelay));
@@ -650,13 +663,128 @@ Máximo 15 palavras. Seja natural e humano.`
       }
     }
 
-    // CENÁRIO C: Timeout de 15 minutos
-    if (timeSinceLastMessage > 15 * 60 * 1000) {
-      console.log(`⏰ [${analysis.id}] Timeout de 15min - finalizando`);
+    // CENÁRIO C: REATIVAÇÃO (FASE 5 - Análises Intermediária e Profunda)
+    const reactivationsSent = analysis.metadata?.reactivations_sent || 0;
+    
+    // REATIVAÇÃO INTERMEDIÁRIA (24h)
+    if (analysis.analysis_depth === 'intermediate' && lastMessage.role === 'assistant') {
+      const hoursWaiting = timeSinceLastMessage / (1000 * 60 * 60);
+      const reactivationTimes = [2, 6, 12]; // horas
+      
+      for (let i = 0; i < reactivationTimes.length; i++) {
+        if (hoursWaiting >= reactivationTimes[i] && reactivationsSent === i) {
+          const messages = [
+            "Oi! Conseguiu dar uma olhada naquelas informações que mencionou?",
+            "Tudo bem por aí? Fiquei pensando sobre o que conversamos...",
+            "Desculpa incomodar de novo, mas conseguiu avaliar se faz sentido pra mim?"
+          ];
+          
+          console.log(`🔁 [${analysis.id}] Reativação intermediária ${i + 1}/3 (${hoursWaiting.toFixed(1)}h)`);
+          
+          await fetch(`${evolutionUrl}/message/sendText/${evolutionInstance}`, {
+            method: 'POST',
+            headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              number: analysis.target_phone,
+              text: messages[i]
+            })
+          });
+          
+          await supabase.from('conversation_messages').insert({
+            analysis_id: analysis.id,
+            role: 'assistant',
+            content: messages[i],
+            metadata: { processed: true, is_reactivation: true, reactivation_number: i + 1 }
+          });
+          
+          await supabase
+            .from('analysis_requests')
+            .update({
+              metadata: { ...analysis.metadata, reactivations_sent: i + 1 },
+              last_message_at: new Date().toISOString()
+            })
+            .eq('id', analysis.id);
+          
+          return { analysis_id: analysis.id, action: 'reactivation_sent', number: i + 1 };
+        }
+      }
+    }
+    
+    // REATIVAÇÃO PROFUNDA (5 dias)
+    if (analysis.analysis_depth === 'deep' && lastMessage.role === 'assistant') {
+      const daysSinceCreated = (Date.now() - new Date(analysis.created_at).getTime()) / (1000 * 60 * 60 * 24);
+      const reactivationDays = [2, 3, 4];
+      
+      for (let i = 0; i < reactivationDays.length; i++) {
+        const targetDay = reactivationDays[i];
+        
+        if (daysSinceCreated >= targetDay && reactivationsSent === i) {
+          const messagesByDay = [
+            ["Oi! Voltando aqui... conseguiu ver melhor sobre o que conversamos?", "Opa, tudo bem? Ainda to interessado(a), tem alguma novidade?"],
+            ["Olá! Ainda to pesquisando sobre isso... consegue me passar mais detalhes?", "Oi de novo! Fiquei pensando aqui, será que consegue me ajudar com mais informações?"],
+            ["Oi! Desculpa a insistência, mas realmente preciso decidir logo. Pode me ajudar?", "Voltando aqui mais uma vez... preciso fechar isso essa semana. Consegue me passar os detalhes?"]
+          ];
+          
+          const msg = messagesByDay[i][Math.floor(Math.random() * messagesByDay[i].length)];
+          
+          console.log(`🔁 [${analysis.id}] Reativação profunda ${i + 1}/3 (dia ${daysSinceCreated.toFixed(1)})`);
+          
+          await fetch(`${evolutionUrl}/message/sendText/${evolutionInstance}`, {
+            method: 'POST',
+            headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              number: analysis.target_phone,
+              text: msg
+            })
+          });
+          
+          await supabase.from('conversation_messages').insert({
+            analysis_id: analysis.id,
+            role: 'assistant',
+            content: msg,
+            metadata: { processed: true, is_reactivation: true, reactivation_day: targetDay }
+          });
+          
+          await supabase
+            .from('analysis_requests')
+            .update({
+              metadata: { ...analysis.metadata, reactivations_sent: i + 1, [`reactivation_day_${targetDay}`]: new Date().toISOString() },
+              last_message_at: new Date().toISOString()
+            })
+            .eq('id', analysis.id);
+          
+          return { analysis_id: analysis.id, action: 'reactivation_sent', day: targetDay };
+        }
+      }
+    }
+
+    // CENÁRIO D: TIMEOUT CONFIGURÁVEL (FASE 5)
+    const DEPTH_TIMEOUTS = {
+      quick: 30 * 60 * 1000, // 30 minutos
+      intermediate: 24 * 60 * 60 * 1000, // 24 horas
+      deep: 5 * 24 * 60 * 60 * 1000 // 5 dias
+    };
+    
+    const messageCount = messages.length;
+    const MAX_INTERACTIONS = {
+      quick: 10, // 5 interações x 2 (user + assistant)
+      intermediate: 20, // 10 interações x 2
+      deep: 30 // 15 interações x 2
+    };
+    
+    const timeoutThreshold = DEPTH_TIMEOUTS[analysis.analysis_depth as keyof typeof DEPTH_TIMEOUTS] || DEPTH_TIMEOUTS.quick;
+    const maxMessages = MAX_INTERACTIONS[analysis.analysis_depth as keyof typeof MAX_INTERACTIONS] || MAX_INTERACTIONS.quick;
+    const timeSinceStart = Date.now() - new Date(analysis.created_at).getTime();
+    
+    if (timeSinceStart >= timeoutThreshold || messageCount >= maxMessages) {
+      console.log(`⏰ [${analysis.id}] Timeout (${(timeSinceStart/1000/60).toFixed(0)}min ou ${messageCount} msgs) - finalizando`);
 
       await supabase
         .from('analysis_requests')
-        .update({ status: 'processing' })
+        .update({ 
+          status: 'processing',
+          completed_at: new Date().toISOString()
+        })
         .eq('id', analysis.id);
 
       await supabase.functions.invoke('generate-metrics', {

@@ -45,15 +45,20 @@ export type Database = {
       }
       analysis_requests: {
         Row: {
+          ai_gender: string | null
           analysis_depth: string
           business_segment: string | null
           city: string | null
           cnpj: string | null
           company_name: string | null
+          competitor_description: string | null
+          competitor_url: string | null
           completed_at: string | null
           created_at: string
           id: string
+          investigation_goals: string | null
           last_message_at: string | null
+          metadata: Json | null
           metrics: Json | null
           persona: Database["public"]["Enums"]["persona_type"]
           processing_stage: string | null
@@ -68,15 +73,20 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          ai_gender?: string | null
           analysis_depth?: string
           business_segment?: string | null
           city?: string | null
           cnpj?: string | null
           company_name?: string | null
+          competitor_description?: string | null
+          competitor_url?: string | null
           completed_at?: string | null
           created_at?: string
           id?: string
+          investigation_goals?: string | null
           last_message_at?: string | null
+          metadata?: Json | null
           metrics?: Json | null
           persona?: Database["public"]["Enums"]["persona_type"]
           processing_stage?: string | null
@@ -91,15 +101,20 @@ export type Database = {
           user_id: string
         }
         Update: {
+          ai_gender?: string | null
           analysis_depth?: string
           business_segment?: string | null
           city?: string | null
           cnpj?: string | null
           company_name?: string | null
+          competitor_description?: string | null
+          competitor_url?: string | null
           completed_at?: string | null
           created_at?: string
           id?: string
+          investigation_goals?: string | null
           last_message_at?: string | null
+          metadata?: Json | null
           metrics?: Json | null
           persona?: Database["public"]["Enums"]["persona_type"]
           processing_stage?: string | null
@@ -465,7 +480,14 @@ export type Database = {
         | "failed"
         | "processing"
       app_role: "admin" | "user"
-      persona_type: "interested" | "price_hunter" | "competitor" | "custom"
+      persona_type:
+        | "interested"
+        | "price_hunter"
+        | "competitor"
+        | "custom"
+        | "ideal_client"
+        | "curious_client"
+        | "difficult_client"
       subscription_tier: "free" | "basic" | "premium"
     }
     CompositeTypes: {
@@ -604,7 +626,15 @@ export const Constants = {
         "processing",
       ],
       app_role: ["admin", "user"],
-      persona_type: ["interested", "price_hunter", "competitor", "custom"],
+      persona_type: [
+        "interested",
+        "price_hunter",
+        "competitor",
+        "custom",
+        "ideal_client",
+        "curious_client",
+        "difficult_client",
+      ],
       subscription_tier: ["free", "basic", "premium"],
     },
   },

@@ -218,21 +218,62 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
     // ETAPA 2: Gerar estratégia de perguntas com OpenAI
     console.log(`🧠 [${pendingAnalysis.id}] Gerando estratégia com OpenAI (gpt-4o)...`);
 
+    // FASE 3: Configurações atualizadas com novos perfis e profundidades
     const personaDescriptions = {
-      interested: 'um cliente interessado e curioso, que faz perguntas naturais sobre os serviços',
-      skeptical: 'um cliente cético que questiona detalhes, preços e compara com concorrentes',
-      urgent: 'um cliente com urgência que precisa de resposta rápida e soluções imediatas',
-      price_focused: 'um cliente focado em preço e custo-benefício',
-      researcher: 'um cliente que está pesquisando detalhadamente antes de decidir'
+      ideal_client: {
+        name: 'Cliente Ideal',
+        behavior: 'Você é um CLIENTE IDEAL - altamente interessado. Demonstre entusiasmo genuíno, faça perguntas específicas e relevantes, mostre conhecimento prévio e sinalize forte intenção de compra. Seja receptivo e engajado.'
+      },
+      curious_client: {
+        name: 'Cliente Curioso',
+        behavior: 'Você é um CLIENTE CURIOSO em fase de descoberta. Faça perguntas gerais, demonstre curiosidade sem urgência, compare com outras opções sem citar concorrentes diretamente. Não sinalize forte intenção de compra imediata.'
+      },
+      difficult_client: {
+        name: 'Cliente Difícil',
+        behavior: 'Você é um CLIENTE DIFÍCIL e cético. Questione preços, condições, benefícios. Apresente objeções sobre prazo e custo-benefício. Peça justificativas detalhadas. Teste conhecimento e paciência do vendedor, mas mantenha interesse suficiente.'
+      },
+      // Manter antigos para compatibilidade
+      interested: { name: 'Interessado', behavior: 'um cliente interessado e curioso, que faz perguntas naturais sobre os serviços' },
+      skeptical: { name: 'Cético', behavior: 'um cliente cético que questiona detalhes, preços e compara com concorrentes' },
+      urgent: { name: 'Urgente', behavior: 'um cliente com urgência que precisa de resposta rápida e soluções imediatas' },
+      price_focused: { name: 'Focado em Preço', behavior: 'um cliente focado em preço e custo-benefício' },
+      researcher: { name: 'Pesquisador', behavior: 'um cliente que está pesquisando detalhadamente antes de decidir' }
     };
 
     const depthConfig = {
-      quick: { numQuestions: 3, description: 'análise rápida com perguntas essenciais' },
-      medium: { numQuestions: 5, description: 'análise moderada com perguntas importantes' },
-      deep: { numQuestions: 8, description: 'análise profunda com perguntas detalhadas' }
+      quick: { 
+        numQuestions: 4, 
+        description: 'análise rápida com perguntas essenciais',
+        maxDuration: 30 * 60 * 1000, // 30 minutos
+        maxInteractions: 5,
+      },
+      intermediate: { 
+        numQuestions: 7, 
+        description: 'análise intermediária com follow-ups',
+        maxDuration: 24 * 60 * 60 * 1000, // 24 horas
+        maxInteractions: 10,
+      },
+      deep: { 
+        numQuestions: 12, 
+        description: 'análise profunda com persistência',
+        maxDuration: 5 * 24 * 60 * 60 * 1000, // 5 dias
+        maxInteractions: 15,
+      }
+    };
+
+    const aiGenderNames = {
+      male: ['Bruno', 'Carlos', 'Diego', 'Felipe', 'Gabriel', 'Lucas', 'Matheus', 'Rafael', 'Rodrigo', 'Thiago'],
+      female: ['Ana', 'Beatriz', 'Camila', 'Daniela', 'Fernanda', 'Juliana', 'Marina', 'Paula', 'Renata', 'Sofia'],
+      neutral: ['Alex', 'Morgan', 'Taylor', 'Jordan', 'Sam', 'Chris', 'Pat', 'Rio', 'Sky']
     };
 
     const config = depthConfig[pendingAnalysis.analysis_depth as keyof typeof depthConfig] || depthConfig.quick;
+    
+    // Selecionar nome baseado no gênero
+    const aiGender = pendingAnalysis.ai_gender || 'neutral';
+    const aiName = aiGenderNames[aiGender as keyof typeof aiGenderNames][
+      Math.floor(Math.random() * aiGenderNames[aiGender as keyof typeof aiGenderNames].length)
+    ];
 
     const strategyResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -246,7 +287,25 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
         messages: [
           {
             role: 'system',
-            content: `Você é um especialista em criar conversas ULTRA NATURAIS de cliente oculto via WhatsApp.
+            content: `Você é ${aiName}, um assistente de IA agindo como cliente oculto.
+
+CONTEXTO DO CONCORRENTE:
+${pendingAnalysis.competitor_description || 'Informação não fornecida'}
+${pendingAnalysis.competitor_url ? `Site: ${pendingAnalysis.competitor_url}` : ''}
+
+INFORMAÇÕES ADICIONAIS:
+${companyInfo?.summary || 'Nenhuma pesquisa adicional realizada'}
+
+SEU PERFIL:
+${(personaDescriptions[pendingAnalysis.persona as keyof typeof personaDescriptions] || personaDescriptions.ideal_client).behavior}
+
+${pendingAnalysis.investigation_goals ? `
+OBJETIVOS ESPECÍFICOS:
+Durante a conversa, descubra naturalmente:
+${pendingAnalysis.investigation_goals}
+` : ''}
+
+Você é um especialista em criar conversas ULTRA NATURAIS de cliente oculto via WhatsApp.
 
 MODELO SSR++ V3.0 - REGRAS CRÍTICAS:
 - A primeira mensagem DEVE parecer 100% humana e brasileira

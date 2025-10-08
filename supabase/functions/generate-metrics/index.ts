@@ -219,11 +219,53 @@ Gere uma análise completa e estruturada do atendimento.`
 
     console.log('Metrics generated successfully');
 
-    // Salvar métricas e atualizar status
+    // FASE 6: Enriquecer com análises temporais e de follow-up
+    const enrichedMetrics: any = { ...metrics };
+    
+    // Análise temporal
+    const enrichedResponseTimes = [];
+    for (let i = 0; i < messages.length - 1; i++) {
+      if (messages[i].role === 'ai' && messages[i + 1].role === 'user') {
+        const time1 = new Date(messages[i].created_at).getTime();
+        const time2 = new Date(messages[i + 1].created_at).getTime();
+        enrichedResponseTimes.push((time2 - time1) / (1000 * 60));
+      }
+    }
+    
+    if (enrichedResponseTimes.length > 0) {
+      enrichedMetrics.temporal_analysis = {
+        avg_response_minutes: (enrichedResponseTimes.reduce((a, b) => a + b, 0) / enrichedResponseTimes.length).toFixed(1),
+        fastest_response: Math.min(...enrichedResponseTimes).toFixed(1),
+        slowest_response: Math.max(...enrichedResponseTimes).toFixed(1)
+      };
+    }
+    
+    // Análise de follow-ups
+    let followUpCount = 0;
+    for (let i = 1; i < messages.length; i++) {
+      if (messages[i].role === 'assistant' && messages[i-1].role === 'assistant') followUpCount++;
+    }
+    
+    enrichedMetrics.followup_analysis = {
+      total_followups: followUpCount,
+      reactivations_sent: analysis.metadata?.reactivations_sent || 0
+    };
+    
+    // Score de persistência (deep)
+    if (analysis.analysis_depth === 'deep') {
+      const reactivations = analysis.metadata?.reactivations_sent || 0;
+      const score = Math.min(10, (reactivations * 2) + (followUpCount * 0.5));
+      enrichedMetrics.persistence_score = {
+        score: score.toFixed(1),
+        classification: score >= 8 ? 'Excelente' : score >= 6 ? 'Boa' : 'Regular'
+      };
+    }
+
+    // Salvar métricas enriquecidas e atualizar status
     const { error: updateError } = await supabase
       .from('analysis_requests')
       .update({
-        metrics: metrics,
+        metrics: enrichedMetrics,
         status: 'completed',
         completed_at: new Date().toISOString()
       })

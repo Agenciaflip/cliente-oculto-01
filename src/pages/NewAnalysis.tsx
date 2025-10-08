@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
 
@@ -73,10 +75,14 @@ const NewAnalysis = () => {
     const businessSegment = formData.get("business_segment") as string;
     const persona = formData.get("persona") as string;
     const analysisDepth = formData.get("analysis_depth") as string;
+    const competitorDescription = formData.get("competitor_description") as string;
+    const competitorUrl = formData.get("competitor_url") as string;
+    const investigationGoals = formData.get("investigation_goals") as string;
+    const aiGender = formData.get("ai_gender") as string;
 
     try {
       // Criar registro de análise no banco
-      const { data: analysis, error: createError } = await supabase
+      const { data: analysis, error: createError} = await supabase
         .from("analysis_requests")
         .insert([{
           user_id: user.id,
@@ -87,6 +93,10 @@ const NewAnalysis = () => {
           business_segment: businessSegment,
           persona: persona as any,
           analysis_depth: analysisDepth,
+          competitor_description: competitorDescription,
+          competitor_url: competitorUrl || null,
+          investigation_goals: investigationGoals || null,
+          ai_gender: aiGender,
           status: "pending" as any,
           processing_stage: "awaiting_research",
         }])
@@ -270,36 +280,125 @@ const NewAnalysis = () => {
                   </p>
                 </div>
 
-                {/* Tipo de Persona */}
+                {/* NOVOS CAMPOS */}
+                
+                {/* Descrição do Concorrente */}
+                <div className="space-y-2">
+                  <Label htmlFor="competitor_description">
+                    Descreva o Concorrente <span className="text-destructive">*</span>
+                  </Label>
+                  <Textarea
+                    id="competitor_description"
+                    name="competitor_description"
+                    placeholder="Exemplo: Empresa que vende produtos de limpeza automotiva, especializada em cera e polish. Atende público B2C e B2B. Possui loja física e e-commerce."
+                    required
+                    disabled={isLoading}
+                    rows={4}
+                    className="resize-none"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Forneça detalhes sobre produtos/serviços, público-alvo e diferenciais conhecidos. Quanto mais detalhes, mais assertiva será a análise.
+                  </p>
+                </div>
+
+                {/* URL do Concorrente */}
+                <div className="space-y-2">
+                  <Label htmlFor="competitor_url">
+                    Site do Concorrente (Opcional)
+                  </Label>
+                  <Input
+                    id="competitor_url"
+                    name="competitor_url"
+                    type="url"
+                    placeholder="https://www.exemplo.com.br"
+                    disabled={isLoading}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Cole o link do site do concorrente para a IA ter mais contexto.
+                  </p>
+                </div>
+
+                {/* Objetivos da Investigação */}
+                <div className="space-y-2">
+                  <Label htmlFor="investigation_goals">
+                    O que você deseja descobrir? (Opcional)
+                  </Label>
+                  <Textarea
+                    id="investigation_goals"
+                    name="investigation_goals"
+                    placeholder="Exemplo: preços de produtos específicos, formas de pagamento aceitas, disponibilidade de agenda, tempo de resposta, políticas de desconto, condições de entrega"
+                    disabled={isLoading}
+                    rows={3}
+                    className="resize-none"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Liste as informações específicas que deseja descobrir. A IA direcionará perguntas para capturar esses dados.
+                  </p>
+                </div>
+
+                {/* Gênero da IA */}
+                <div className="space-y-2">
+                  <Label>
+                    Gênero do Agente IA <span className="text-destructive">*</span>
+                  </Label>
+                  <RadioGroup name="ai_gender" defaultValue="neutral" disabled={isLoading} className="flex gap-4">
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="male" id="male" />
+                      <Label htmlFor="male" className="font-normal cursor-pointer">Masculino</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="female" id="female" />
+                      <Label htmlFor="female" className="font-normal cursor-pointer">Feminino</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="neutral" id="neutral" />
+                      <Label htmlFor="neutral" className="font-normal cursor-pointer">Neutro</Label>
+                    </div>
+                  </RadioGroup>
+                  <p className="text-xs text-muted-foreground">
+                    Define o nome, tom de voz e linguagem da IA para alinhar com o perfil do cliente ideal.
+                  </p>
+                </div>
+
+                {/* Perfil do Cliente - ATUALIZADO */}
                 <div className="space-y-2">
                   <Label htmlFor="persona">
-                    Tipo de Cliente <span className="text-destructive">*</span>
+                    Perfil do Cliente <span className="text-destructive">*</span>
                   </Label>
-                  <Select name="persona" defaultValue="interested" disabled={isLoading}>
+                  <Select name="persona" defaultValue="ideal_client" disabled={isLoading}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="interested">
-                        Cliente Interessado Genérico
+                      <SelectItem value="ideal_client">
+                        <div className="flex flex-col gap-1 py-1">
+                          <div className="font-medium">Cliente Ideal</div>
+                          <div className="text-xs text-muted-foreground">
+                            Muito interessado e engajado - Para análise de concorrentes
+                          </div>
+                        </div>
                       </SelectItem>
-                      <SelectItem value="price_hunter">
-                        Caçador de Preço
+                      <SelectItem value="curious_client">
+                        <div className="flex flex-col gap-1 py-1">
+                          <div className="font-medium">Cliente Curioso</div>
+                          <div className="text-xs text-muted-foreground">
+                            Indeciso, em fase de descoberta - Para cliente oculto próprio
+                          </div>
+                        </div>
                       </SelectItem>
-                      <SelectItem value="competitor">
-                        Concorrente Disfarçado
-                      </SelectItem>
-                      <SelectItem value="custom">
-                        Personalizado
+                      <SelectItem value="difficult_client">
+                        <div className="flex flex-col gap-1 py-1">
+                          <div className="font-medium">Cliente Difícil</div>
+                          <div className="text-xs text-muted-foreground">
+                            Cético e questionador - Para testar contorno de objeções
+                          </div>
+                        </div>
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Define como a IA vai se comportar na conversa
-                  </p>
                 </div>
 
-                {/* Profundidade da análise */}
+                {/* Profundidade da Análise - ATUALIZADO */}
                 <div className="space-y-2">
                   <Label htmlFor="analysis_depth">
                     Profundidade da Análise <span className="text-destructive">*</span>
@@ -310,16 +409,31 @@ const NewAnalysis = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="quick">
-                        Análise Rápida (3-5 perguntas)
+                        <div className="flex flex-col gap-1 py-1">
+                          <div className="font-medium">Análise Rápida</div>
+                          <div className="text-xs text-muted-foreground">
+                            3-5 perguntas, ~30 minutos - Validação rápida
+                          </div>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="intermediate">
+                        <div className="flex flex-col gap-1 py-1">
+                          <div className="font-medium">Análise Intermediária</div>
+                          <div className="text-xs text-muted-foreground">
+                            5-10 perguntas, 24 horas - Processo comercial completo
+                          </div>
+                        </div>
                       </SelectItem>
                       <SelectItem value="deep">
-                        Análise Profunda (10-15 perguntas)
+                        <div className="flex flex-col gap-1 py-1">
+                          <div className="font-medium">Análise Profunda</div>
+                          <div className="text-xs text-muted-foreground">
+                            10-15 perguntas, 5 dias - Jornada completa + follow-ups
+                          </div>
+                        </div>
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Análises profundas consomem mais créditos mas geram insights mais detalhados
-                  </p>
                 </div>
 
                 {/* Botões de ação */}
