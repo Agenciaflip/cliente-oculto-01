@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getPersonaPrompt } from "../_shared/prompts/personas.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,9 +19,16 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const openAIKey = Deno.env.get('OPENAI_API_KEY');
+    
+    // Carregar credenciais Evolution API padrão (male/neutral)
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL');
     const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
     const evolutionInstance = Deno.env.get('EVOLUTION_INSTANCE_NAME');
+    
+    // Carregar credenciais Evolution API feminina
+    const evolutionUrlFemale = Deno.env.get('EVOLUTION_API_URL_FEMALE');
+    const evolutionKeyFemale = Deno.env.get('EVOLUTION_API_KEY_FEMALE');
+    const evolutionInstanceFemale = Deno.env.get('EVOLUTION_INSTANCE_NAME_FEMALE');
 
     // Tentar pegar analysis_id do body (quando trigger dispara)
     let specificAnalysisId: string | null = null;
@@ -69,7 +77,10 @@ serve(async (req) => {
         openAIKey!, 
         evolutionUrl!, 
         evolutionKey!, 
-        evolutionInstance!
+        evolutionInstance!,
+        evolutionUrlFemale!,
+        evolutionKeyFemale!,
+        evolutionInstanceFemale!
       ))
     );
 
@@ -99,14 +110,162 @@ serve(async (req) => {
   }
 });
 
+// ============= FUNÇÃO AUXILIAR: SELECIONAR EVOLUTION CREDENTIALS =============
+function getEvolutionCredentials(aiGender: string) {
+  if (aiGender === 'female') {
+    return {
+      url: Deno.env.get('EVOLUTION_API_URL_FEMALE'),
+      key: Deno.env.get('EVOLUTION_API_KEY_FEMALE'),
+      instance: Deno.env.get('EVOLUTION_INSTANCE_NAME_FEMALE')
+    };
+  }
+  
+  return {
+    url: Deno.env.get('EVOLUTION_API_URL'),
+    key: Deno.env.get('EVOLUTION_API_KEY'),
+    instance: Deno.env.get('EVOLUTION_INSTANCE_NAME')
+  };
+}
+
+// ============= FUNÇÕES DE ANÁLISE DE HISTÓRICO =============
+function analyzeConversationHistory(messages: any[]): {
+  questionsAsked: string[];
+  topicsDiscussed: string[];
+  reactionsUsed: string[];
+  lastUserQuestions: string[];
+} {
+  const questionsAsked: string[] = [];
+  const topicsDiscussed: string[] = [];
+  const reactionsUsed: string[] = [];
+  const lastUserQuestions: string[] = [];
+
+  // Palavras-chave de tópicos comuns
+  const topicKeywords: { [key: string]: string[] } = {
+    'preço': ['quanto', 'valor', 'preço', 'custo', 'custa'],
+    'prazo': ['prazo', 'demora', 'tempo', 'entrega', 'quando'],
+    'garantia': ['garantia', 'devolução', 'troca', 'problema'],
+    'pagamento': ['pagamento', 'parcelado', 'pix', 'cartão', 'boleto'],
+    'funcionamento': ['funciona', 'como', 'processo', 'etapas'],
+    'suporte': ['suporte', 'ajuda', 'atendimento', 'contato'],
+    'localização': ['endereço', 'onde', 'local', 'fica', 'região'],
+    'benefícios': ['benefício', 'vantagem', 'diferencial', 'melhor'],
+  };
+
+  for (const msg of messages) {
+    if (msg.role === 'ai') {
+      const content = msg.content.toLowerCase();
+
+      // 1. DETECTAR PERGUNTAS (termina com ?)
+      const sentences = content.split(/[.!?]+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+      for (const sentence of sentences) {
+        if (sentence.includes('?') || 
+            sentence.startsWith('quanto') || 
+            sentence.startsWith('qual') ||
+            sentence.startsWith('como') ||
+            sentence.startsWith('onde') ||
+            sentence.startsWith('quando') ||
+            sentence.startsWith('tem')) {
+          questionsAsked.push(sentence);
+        }
+      }
+
+      // 2. DETECTAR TÓPICOS DISCUTIDOS
+      for (const [topic, keywords] of Object.entries(topicKeywords)) {
+        if (keywords.some(kw => content.includes(kw))) {
+          if (!topicsDiscussed.includes(topic)) {
+            topicsDiscussed.push(topic);
+          }
+        }
+      }
+
+      // 3. DETECTAR REAÇÕES USADAS
+      const commonReactions = [
+        'ah massa', 'ah legal', 'hmm', 'entendi', 'beleza', 'ok', 
+        'certo', 'perfeito', 'legal', 'show', 'massa', 'que bom',
+        'interessante', 'bacana', 'adorei', 'top'
+      ];
+      
+      for (const reaction of commonReactions) {
+        if (content.includes(reaction)) {
+          reactionsUsed.push(reaction);
+        }
+      }
+    }
+  }
+
+  // 4. ÚLTIMAS 3 PERGUNTAS DO CLIENTE (para não re-perguntar imediatamente)
+  const recentAiMessages = messages
+    .filter((m: any) => m.role === 'ai')
+    .slice(-3);
+  
+  for (const msg of recentAiMessages) {
+    const content = msg.content.toLowerCase();
+    const questions = content.split(/[.!]+/).filter((s: string) => s.includes('?'));
+    lastUserQuestions.push(...questions);
+  }
+
+  return {
+    questionsAsked,
+    topicsDiscussed,
+    reactionsUsed,
+    lastUserQuestions
+  };
+}
+
+function isQuestionSimilar(newQuestion: string, previousQuestions: string[]): boolean {
+  const newQ = newQuestion.toLowerCase().replace(/[^\w\s]/g, '');
+  
+  for (const prevQ of previousQuestions) {
+    const prevQClean = prevQ.toLowerCase().replace(/[^\w\s]/g, '');
+    
+    // 1. Perguntas idênticas ou quase idênticas
+    if (newQ === prevQClean) return true;
+    
+    // 2. Mesmas palavras-chave principais
+    const newWords = newQ.split(' ').filter((w: string) => w.length > 3);
+    const prevWords = prevQClean.split(' ').filter((w: string) => w.length > 3);
+    const commonWords = newWords.filter((w: string) => prevWords.includes(w));
+    
+    // Se 70%+ das palavras são iguais, considera similar
+    if (commonWords.length >= Math.min(newWords.length, prevWords.length) * 0.7) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+function suggestVariedReaction(usedReactions: string[]): string[] {
+  const allReactions = [
+    'entendi', 'beleza', 'ok', 'certo', 'bom saber', 'show', 'massa',
+    'pode crer', 'saquei', 'faz sentido', 'legal', 'perfeito', 'adorei',
+    'que bom', 'interessante', 'bacana', 'top', 'valeu'
+  ];
+  
+  // Retornar reações NÃO usadas ainda
+  const unused = allReactions.filter((r: string) => !usedReactions.includes(r));
+  return unused.length > 0 ? unused : allReactions;
+}
+
 async function processConversation(
   analysis: any,
   supabase: any,
   openAIKey: string,
   evolutionUrl: string,
   evolutionKey: string,
-  evolutionInstance: string
+  evolutionInstance: string,
+  evolutionUrlFemale: string,
+  evolutionKeyFemale: string,
+  evolutionInstanceFemale: string
 ) {
+  // NOVO: Selecionar credenciais baseadas no ai_gender
+  const evoCredentials = getEvolutionCredentials(analysis.ai_gender || 'male');
+  const actualEvolutionUrl = evoCredentials.url!;
+  const actualEvolutionKey = evoCredentials.key!;
+  const actualEvolutionInstance = evoCredentials.instance!;
+  
+  console.log(`🔧 [${analysis.id}] Usando Evolution ${analysis.ai_gender === 'female' ? 'FEMININA (clienteoculto-mulher)' : 'MASCULINA (felipedisparo)'}`);
+
   try {
     // Buscar todas mensagens da conversa
     const { data: messages } = await supabase
@@ -211,20 +370,32 @@ async function processConversation(
 
       console.log(`📊 [${analysis.id}] Perguntas: ${aiQuestionsCount}/10, Emojis: ${emojiCount}/3, Finalizar: ${shouldFinish}`);
 
-      try {
+      // ============= ANALISAR HISTÓRICO ANTES DE RESPONDER =============
+      const historyAnalysis = analyzeConversationHistory(messages);
+      const availableReactions = suggestVariedReaction(historyAnalysis.reactionsUsed);
 
-        const systemPrompt = `MODELO SSR++ V3.0 - CLIENTE OCULTO AI
+      console.log(`📋 [${analysis.id}] Histórico: ${historyAnalysis.questionsAsked.length} perguntas, ${historyAnalysis.topicsDiscussed.length} tópicos`);
+
+      try {
+        const basePersonaPrompt = getPersonaPrompt(analysis.ai_gender || 'male');
+
+        const systemPrompt = `${basePersonaPrompt}
 
 CONTEXTO DA CONVERSA:
 - Cidade: ${analysis.city}
 - Empresa: ${analysis.company_name || 'empresa'}
 
-IMPORTANTE SOBRE LOCALIZAÇÃO:
-- Quando falar de endereços, SEMPRE mencionar a cidade ${analysis.city}
-- Use endereços reais dessa cidade quando necessário
-- Exemplo: "Estou em ${analysis.city}, na região do [bairro real]"
+🔍 ANÁLISE DO HISTÓRICO (NÃO REPETIR):
+TÓPICOS DISCUTIDOS: ${historyAnalysis.topicsDiscussed.join(', ') || 'Nenhum'}
+PERGUNTAS FEITAS: ${historyAnalysis.questionsAsked.slice(-5).join(' | ') || 'Nenhuma'}
+REAÇÕES USADAS: ${historyAnalysis.reactionsUsed.slice(-8).join(', ') || 'Nenhuma'}
+REAÇÕES DISPONÍVEIS: ${availableReactions.slice(0, 8).join(', ')}
 
-IDENTIDADE: Você é Lucas/Maria, brasileiro(a) de 28-42 anos, interessado genuinamente no produto/serviço.
+⚠️ REGRAS ANTI-REPETIÇÃO:
+❌ NÃO repetir perguntas ou tópicos já discutidos
+❌ NÃO usar reações já usadas
+✅ Usar APENAS reações disponíveis
+✅ Avançar para novos tópicos
 
 PERSONALIDADE:
 - Empático (8/10) - educado, simpático
@@ -376,7 +547,25 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
           }
         } else {
           const aiData = await aiResponse.json();
-          adaptedQuestion = aiData.choices?.[0]?.message?.content?.trim() || adaptedQuestion;
+          let proposedResponse = aiData.choices?.[0]?.message?.content?.trim() || adaptedQuestion;
+          
+          // ============= VALIDAÇÃO ANTI-REPETIÇÃO =============
+          const isRepetitive = isQuestionSimilar(proposedResponse, historyAnalysis.questionsAsked);
+          
+          if (isRepetitive) {
+            console.warn(`⚠️ [${analysis.id}] Pergunta repetitiva detectada!`);
+            proposedResponse = nextQuestion?.question || adaptedQuestion;
+          }
+          
+          // Substituir reações repetidas
+          for (const usedReaction of historyAnalysis.reactionsUsed) {
+            if (proposedResponse.toLowerCase().includes(usedReaction)) {
+              const newReaction = availableReactions[0] || 'entendi';
+              proposedResponse = proposedResponse.replace(new RegExp(usedReaction, 'gi'), newReaction);
+            }
+          }
+          
+          adaptedQuestion = proposedResponse;
           console.log(`🤖 [${analysis.id}] OpenAI respondeu: ${adaptedQuestion}`);
         }
       } catch (error) {
@@ -396,10 +585,10 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
       console.log(`📤 [${analysis.id}] Preparando para enviar mensagem`);
 
       // 1. ENVIAR PRESENCE "COMPOSING" (digitando...)
-      await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+      await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
         method: 'POST',
         headers: {
-          'apikey': evolutionKey,
+          'apikey': actualEvolutionKey,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -436,9 +625,9 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
         while (elapsed + interval < totalDelay) {
           await new Promise((r) => setTimeout(r, interval));
           elapsed += interval;
-          await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+          await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
             method: 'POST',
-            headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+            headers: { 'apikey': actualEvolutionKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({ number: analysis.target_phone, state: 'composing' })
           });
         }
@@ -452,11 +641,11 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
       };
 
       const evolutionResponse = await fetch(
-        `${evolutionUrl}/message/sendText/${evolutionInstance}`,
+        `${actualEvolutionUrl}/message/sendText/${actualEvolutionInstance}`,
         {
           method: 'POST',
           headers: {
-            'apikey': evolutionKey,
+            'apikey': actualEvolutionKey,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(evolutionPayload),
@@ -470,10 +659,10 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
       console.log(`✅ [${analysis.id}] Mensagem enviada com sucesso`);
 
       // 4. PARAR "DIGITANDO..."
-      await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+      await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
         method: 'POST',
         headers: {
-          'apikey': evolutionKey,
+          'apikey': actualEvolutionKey,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({

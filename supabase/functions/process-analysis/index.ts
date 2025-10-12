@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getPersonaPrompt } from "../_shared/prompts/personas.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -19,9 +20,16 @@ serve(async (req) => {
 
     const perplexityKey = Deno.env.get('PERPLEXITY_API_KEY');
     const openAIKey = Deno.env.get('OPENAI_API_KEY');
+    
+    // Carregar credenciais Evolution API padrão (male/neutral)
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL');
     const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
     const evolutionInstance = Deno.env.get('EVOLUTION_INSTANCE_NAME');
+    
+    // Carregar credenciais Evolution API feminina
+    const evolutionUrlFemale = Deno.env.get('EVOLUTION_API_URL_FEMALE');
+    const evolutionKeyFemale = Deno.env.get('EVOLUTION_API_KEY_FEMALE');
+    const evolutionInstanceFemale = Deno.env.get('EVOLUTION_INSTANCE_NAME_FEMALE');
 
     const { action } = await req.json().catch(() => ({}));
 
@@ -82,7 +90,18 @@ serve(async (req) => {
 
     // Processar cada análise em paralelo
     const results = await Promise.allSettled(
-      pendingAnalyses.map(analysis => processAnalysis(analysis, supabase, perplexityKey, openAIKey, evolutionUrl, evolutionKey, evolutionInstance))
+      pendingAnalyses.map(analysis => processAnalysis(
+        analysis, 
+        supabase, 
+        perplexityKey, 
+        openAIKey, 
+        evolutionUrl, 
+        evolutionKey, 
+        evolutionInstance,
+        evolutionUrlFemale,
+        evolutionKeyFemale,
+        evolutionInstanceFemale
+      ))
     );
 
     const successful = results.filter(r => r.status === 'fulfilled').length;
@@ -115,6 +134,32 @@ serve(async (req) => {
   }
 });
 
+// ============= FUNÇÃO AUXILIAR: SELECIONAR EVOLUTION CREDENTIALS =============
+function getEvolutionCredentials(
+  aiGender: string,
+  evolutionUrl: string | undefined,
+  evolutionKey: string | undefined,
+  evolutionInstance: string | undefined,
+  evolutionUrlFemale: string | undefined,
+  evolutionKeyFemale: string | undefined,
+  evolutionInstanceFemale: string | undefined
+) {
+  if (aiGender === 'female') {
+    return {
+      url: evolutionUrlFemale,
+      key: evolutionKeyFemale,
+      instance: evolutionInstanceFemale
+    };
+  }
+  
+  // Padrão: male ou neutral
+  return {
+    url: evolutionUrl,
+    key: evolutionKey,
+    instance: evolutionInstance
+  };
+}
+
 // FUNÇÃO AUXILIAR PARA PROCESSAR CADA ANÁLISE
 async function processAnalysis(
   pendingAnalysis: any,
@@ -123,8 +168,28 @@ async function processAnalysis(
   openAIKey: string | undefined,
   evolutionUrl: string | undefined,
   evolutionKey: string | undefined,
-  evolutionInstance: string | undefined
+  evolutionInstance: string | undefined,
+  evolutionUrlFemale: string | undefined,
+  evolutionKeyFemale: string | undefined,
+  evolutionInstanceFemale: string | undefined
 ) {
+  // Selecionar credenciais Evolution baseadas no ai_gender
+  const evoCredentials = getEvolutionCredentials(
+    pendingAnalysis.ai_gender || 'male',
+    evolutionUrl,
+    evolutionKey,
+    evolutionInstance,
+    evolutionUrlFemale,
+    evolutionKeyFemale,
+    evolutionInstanceFemale
+  );
+  
+  const actualEvolutionUrl = evoCredentials.url!;
+  const actualEvolutionKey = evoCredentials.key!;
+  const actualEvolutionInstance = evoCredentials.instance!;
+  
+  console.log(`🔧 [${pendingAnalysis.id}] Usando Evolution ${pendingAnalysis.ai_gender === 'female' ? 'FEMININA (clienteoculto-mulher)' : 'MASCULINA (felipedisparo)'}`);
+
   try {
     console.log(`🔄 [${pendingAnalysis.id}] Iniciando processamento para ${pendingAnalysis.target_phone}`);
 
@@ -261,6 +326,9 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
       }
     };
 
+    // Obter prompt completo da persona baseado no ai_gender
+    const basePersonaPrompt = getPersonaPrompt(pendingAnalysis.ai_gender || 'male');
+    
     const aiGenderNames = {
       male: ['Bruno', 'Carlos', 'Diego', 'Felipe', 'Gabriel', 'Lucas', 'Matheus', 'Rafael', 'Rodrigo', 'Thiago'],
       female: ['Ana', 'Beatriz', 'Camila', 'Daniela', 'Fernanda', 'Juliana', 'Marina', 'Paula', 'Renata', 'Sofia'],
@@ -287,7 +355,7 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
         messages: [
           {
             role: 'system',
-            content: `Você é ${aiName}, um assistente de IA agindo como cliente oculto.
+            content: `${basePersonaPrompt}
 
 CONTEXTO DO CONCORRENTE:
 ${pendingAnalysis.competitor_description || 'Informação não fornecida'}
@@ -510,11 +578,11 @@ CRITICAL: Primeira mensagem deve ter 2-3 linhas curtas, separadas por \\n, super
       
       const payload = { number: num, text: firstQuestion.question };
       const resp = await fetch(
-        `${evolutionUrl}/message/sendText/${evolutionInstance}`,
+        `${actualEvolutionUrl}/message/sendText/${actualEvolutionInstance}`,
         {
           method: 'POST',
           headers: {
-            'apikey': evolutionKey!,
+            'apikey': actualEvolutionKey!,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),

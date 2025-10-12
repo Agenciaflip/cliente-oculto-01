@@ -280,6 +280,27 @@ const NewAnalysis = () => {
                   </p>
                 </div>
 
+                {/* Persona */}
+                <div className="space-y-2">
+                  <Label>Persona do Cliente Oculto <span className="text-destructive">*</span></Label>
+                  <RadioGroup name="ai_gender" defaultValue="male" disabled={isLoading} className="space-y-3">
+                    <div className="flex items-start space-x-3 border rounded-lg p-4 hover:bg-accent/50 transition-colors">
+                      <RadioGroupItem value="male" id="male" className="mt-1" />
+                      <div className="space-y-1 flex-1">
+                        <Label htmlFor="male" className="font-semibold cursor-pointer">👨‍💼 Bruno (Homem, 35 anos)</Label>
+                        <p className="text-sm text-muted-foreground">Gerente Comercial, direto, informal. Mensagens curtas (5-30 palavras), máximo 3 emojis.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3 border rounded-lg p-4 hover:bg-accent/50 transition-colors">
+                      <RadioGroupItem value="female" id="female" className="mt-1" />
+                      <div className="space-y-1 flex-1">
+                        <Label htmlFor="female" className="font-semibold cursor-pointer">👩‍🏫 Fernanda (Mulher, 38 anos)</Label>
+                        <p className="text-sm text-muted-foreground">Coordenadora Pedagógica, detalhista, educada. Mensagens médias (8-50 palavras), máximo 5 emojis.</p>
+                      </div>
+                    </div>
+                  </RadioGroup>
+                </div>
+
                 {/* NOVOS CAMPOS */}
                 
                 {/* Descrição do Concorrente */}
