@@ -264,7 +264,8 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
           cnpj: pendingAnalysis.cnpj
         };
 
-        console.log(`✅ [${pendingAnalysis.id}] Pesquisa Perplexity concluída`);
+        console.log(`✅ [${pendingAnalysis.id}] Pesquisa Perplexity concluída com sucesso`);
+        console.log(`📄 [${pendingAnalysis.id}] Resumo: ${companyInfo.summary.substring(0, 200)}...`);
 
         // Atualizar com dados da pesquisa e mudar para 'generating_strategy'
         await supabase
@@ -276,7 +277,25 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
           })
           .eq('id', pendingAnalysis.id);
       } else {
-        console.warn(`⚠️ [${pendingAnalysis.id}] Perplexity falhou, continuando sem pesquisa`);
+        const errorStatus = perplexityResponse.status;
+        const errorText = await perplexityResponse.text();
+        console.error(`❌ [${pendingAnalysis.id}] Perplexity falhou - Status: ${errorStatus}`);
+        console.error(`❌ [${pendingAnalysis.id}] Erro: ${errorText.substring(0, 300)}`);
+        
+        // Persistir erro para auditoria
+        companyInfo = {
+          error: `Perplexity API failed with status ${errorStatus}`,
+          error_details: errorText.substring(0, 500),
+          attempted_at: new Date().toISOString()
+        };
+        
+        await supabase
+          .from('analysis_requests')
+          .update({ 
+            research_data: companyInfo,
+            processing_stage: 'generating_strategy'
+          })
+          .eq('id', pendingAnalysis.id);
       }
     }
 
@@ -405,14 +424,19 @@ CONTEXTO:
 - Persona: ${personaDescriptions[pendingAnalysis.persona as keyof typeof personaDescriptions]}
 - Profundidade: ${config.description}
 
-PRIMEIRA MENSAGEM (escolha UMA variação aleatória):
-1. Direta: "oi, boa tarde\\nvi sobre vocês e fiquei interessado\\nvocês trabalham com [SERVICO]?"
-2. Contexto: "olá\\num amigo me indicou vocês\\nqueria saber mais sobre [PRODUTO]"
-3. Tímida: "oi tudo bem?\\ndesculpa incomodar\\nvocês atendem [REGIAO]?\\ntenho interesse aqui"
-4. Empolgada: "boa tarde! 😊\\nestava pesquisando e achei vocês\\nvocês podem me ajudar com informações?"
-5. Casual: "oi\\nvi que vcs trabalham com [SERVICO]\\npode me passar umas infos?"
+PRIMEIRA MENSAGEM - Exemplos naturais SEM emojis:
+1. "bom dia, vi sobre vocês e fiquei interessado, vocês trabalham com [SERVICO]?"
+2. "boa tarde, um conhecido indicou, como funciona o [SERVICO]?"
+3. "boa noite, to precisando de [PRODUTO], vcs fazem?"
+4. "bom dia, estava pesquisando e achei vocês, pode me ajudar?"
+5. "boa tarde, vcs atendem na região do [BAIRRO]?"
 
-CRITICAL: Primeira mensagem deve ter 2-3 linhas curtas, separadas por \\n, super natural, brasileiro típico no WhatsApp.`
+CRITICAL: 
+- SEMPRE começar com saudação contextual (bom dia/boa tarde/boa noite)
+- UMA pergunta simples e direta
+- Máximo 2 linhas curtas
+- ZERO emojis
+- 100% natural brasileiro`
           }
         ],
         tools: [{

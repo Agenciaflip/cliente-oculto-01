@@ -4,15 +4,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getPersonaPrompt } from "../_shared/prompts/personas.ts";
 
-// Função auxiliar para saudação contextual
+// Função auxiliar para saudação contextual (horário de Brasília)
 function getGreetingByTime(): string {
-  const now = new Date();
-  const brazilTime = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-  const hour = brazilTime.getHours();
-  
-  if (hour >= 5 && hour < 12) return "bom dia";
-  if (hour >= 12 && hour < 18) return "boa tarde";
-  return "boa noite";
+  const nowBrasilia = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false });
+  const hour = parseInt(nowBrasilia.split(':')[0]);
+  if (hour >= 5 && hour < 12) return 'bom dia';
+  if (hour >= 12 && hour < 18) return 'boa tarde';
+  return 'boa noite';
 }
 
 const corsHeaders = {
@@ -144,12 +142,12 @@ function analyzeConversationHistory(messages: any[]): {
   questionsAsked: string[];
   topicsDiscussed: string[];
   reactionsUsed: string[];
-  lastUserQuestions: string[];
+  recentUserQuestions: string[];
 } {
   const questionsAsked: string[] = [];
   const topicsDiscussed: string[] = [];
   const reactionsUsed: string[] = [];
-  const lastUserQuestions: string[] = [];
+  const recentUserQuestions: string[] = [];
 
   // Palavras-chave de tópicos comuns
   const topicKeywords: { [key: string]: string[] } = {
@@ -202,25 +200,19 @@ function analyzeConversationHistory(messages: any[]): {
           reactionsUsed.push(reaction);
         }
       }
+    } else if (msg.role === 'user') {
+      // Detectar perguntas do vendedor
+      if (msg.content.includes('?')) {
+        recentUserQuestions.push(msg.content);
+      }
     }
-  }
-
-  // 4. ÚLTIMAS 3 PERGUNTAS DO CLIENTE (para não re-perguntar imediatamente)
-  const recentAiMessages = messages
-    .filter((m: any) => m.role === 'ai')
-    .slice(-3);
-  
-  for (const msg of recentAiMessages) {
-    const content = msg.content.toLowerCase();
-    const questions = content.split(/[.!]+/).filter((s: string) => s.includes('?'));
-    lastUserQuestions.push(...questions);
   }
 
   return {
     questionsAsked,
     topicsDiscussed,
     reactionsUsed,
-    lastUserQuestions
+    recentUserQuestions: recentUserQuestions.slice(-3) // Últimas 3
   };
 }
 
@@ -270,7 +262,7 @@ async function processConversation(
   evolutionKeyFemale: string,
   evolutionInstanceFemale: string
 ) {
-  // NOVO: Selecionar credenciais baseadas no ai_gender
+  // Selecionar credenciais baseadas no ai_gender
   const evoCredentials = getEvolutionCredentials(analysis.ai_gender || 'male');
   const actualEvolutionUrl = evoCredentials.url!;
   const actualEvolutionKey = evoCredentials.key!;
@@ -298,421 +290,222 @@ async function processConversation(
       m.role === 'user' && m.metadata?.processed === false
     );
 
-      if (unprocessedMessages.length > 0) {
-        // Atomic claim to avoid duplicate processing in parallel runs
-        const runId = crypto.randomUUID();
-        const claimedMessages: any[] = [];
-        for (const msg of unprocessedMessages) {
-          const newMeta = { ...(msg.metadata || {}), claimed_by: runId, claimed_at: new Date().toISOString() };
-          const { data: updated, error } = await supabase
-            .from('conversation_messages')
-            .update({ metadata: newMeta })
-            .eq('id', msg.id)
-            .eq('role', 'user')
-            .is('metadata->>claimed_by', null)
-            .eq('metadata->>processed', 'false')
-            .select('id, metadata')
-            .limit(1);
-          if (!error && updated && updated.length > 0) {
-            claimedMessages.push({ ...msg, metadata: updated[0].metadata });
-          }
+    if (unprocessedMessages.length > 0) {
+      // Atomic claim to avoid duplicate processing
+      const runId = crypto.randomUUID();
+      const claimedMessages: any[] = [];
+      for (const msg of unprocessedMessages) {
+        const newMeta = { ...(msg.metadata || {}), claimed_by: runId, claimed_at: new Date().toISOString() };
+        const { data: updated, error } = await supabase
+          .from('conversation_messages')
+          .update({ metadata: newMeta })
+          .eq('id', msg.id)
+          .eq('role', 'user')
+          .is('metadata->>claimed_by', null)
+          .eq('metadata->>processed', 'false')
+          .select('id, metadata')
+          .limit(1);
+        if (!error && updated && updated.length > 0) {
+          claimedMessages.push({ ...msg, metadata: updated[0].metadata });
         }
+      }
 
-        if (claimedMessages.length === 0) {
-          console.log(`⏭️ [${analysis.id}] Mensagens já foram reivindicadas por outro worker. Pulando.`);
-          return { analysis_id: analysis.id, action: 'skipped_already_claimed' };
-        }
+      if (claimedMessages.length === 0) {
+        console.log(`⏭️ [${analysis.id}] Mensagens já foram reivindicadas por outro worker. Pulando.`);
+        return { analysis_id: analysis.id, action: 'skipped_already_claimed' };
+      }
 
-        console.log(`📦 [${analysis.id}] Reivindicadas ${claimedMessages.length} mensagens para processamento (runId=${runId})`);
+      console.log(`📦 [${analysis.id}] Reivindicadas ${claimedMessages.length} mensagens (runId=${runId})`);
 
-        // Agrupar conteúdo apenas das mensagens reivindicadas
-        const groupedContent = claimedMessages
-          .map((m: any) => m.content)
-          .join('\n');
+      // Agrupar conteúdo das mensagens reivindicadas
+      const groupedContent = claimedMessages.map((m: any) => m.content).join('\n');
 
+      // Análise de histórico
+      const conversationAnalysis = analyzeConversationHistory(messages);
 
-      // Montar histórico completo
-      const conversationHistory = messages
-        .map((m: any) => `${m.role === 'ai' ? 'Cliente Oculto' : 'Empresa'}: ${m.content}`)
-        .join('\n');
+      console.log(`📋 [${analysis.id}] Histórico: ${conversationAnalysis.questionsAsked.length} perguntas, ${conversationAnalysis.topicsDiscussed.length} tópicos`);
 
-      // SISTEMA SSR++ V3.0 - Análise e Geração de Resposta Ultra Natural
-      
-      // Contar perguntas já feitas pelo AI (excluindo nudges)
+      // Contar perguntas já feitas
       const aiQuestionsCount = messages.filter((m: any) => 
         m.role === 'ai' && !m.metadata?.is_nudge
       ).length;
-      
+
       const currentQuestionIndex = aiQuestionsCount;
       const questionsStrategy = analysis.questions_strategy;
       const totalQuestions = questionsStrategy?.questions?.length || 0;
 
-      // NOVO: Permitir conversa livre após perguntas estruturadas
-      if (currentQuestionIndex >= totalQuestions) {
-        console.log(`✅ [${analysis.id}] Perguntas estruturadas completas - modo conversa livre`);
-        // Não finaliza mais - continua em modo conversa livre
-      }
-
-      // Determinar próxima resposta
-      let adaptedQuestion: string;
-      let isFreestyle = false;
+      // Determinar próxima ação
       let nextQuestion: any = null;
+      let nextStepInstruction = '';
 
       if (currentQuestionIndex < totalQuestions) {
         nextQuestion = questionsStrategy.questions[currentQuestionIndex];
-        adaptedQuestion = nextQuestion.question;
+        nextStepInstruction = `Faça a próxima pergunta (${currentQuestionIndex + 1}/${totalQuestions}): ${nextQuestion.expected_info}`;
       } else {
-        // Modo conversa livre - gerar resposta contextual
-        isFreestyle = true;
-        adaptedQuestion = "Continuando conversa...";
-      }
-      
-      // Contar emojis já usados
-      const emojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
-      let emojiCount = 0;
-      for (const msg of messages) {
-        if (msg.role === 'ai') {
-          const matches = msg.content.match(emojiRegex);
-          emojiCount += matches ? matches.length : 0;
-        }
+        nextStepInstruction = 'Perguntas estruturadas completas - continue conversa livre';
       }
 
-      // Verificar se deve encerrar (>= 10 perguntas)
-      const shouldFinish = aiQuestionsCount >= 10;
+      // Construir systemPrompt
+      const basePersonaPrompt = getPersonaPrompt(analysis.ai_gender || 'male');
+      const currentTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const appropriateGreeting = getGreetingByTime();
 
-      console.log(`📊 [${analysis.id}] Perguntas: ${aiQuestionsCount}/10, Emojis: ${emojiCount}/3, Finalizar: ${shouldFinish}`);
+      const systemPrompt = `${basePersonaPrompt}
 
-      // ============= ANALISAR HISTÓRICO ANTES DE RESPONDER =============
-      const historyAnalysis = analyzeConversationHistory(messages);
-      const availableReactions = suggestVariedReaction(historyAnalysis.reactionsUsed);
+HORÁRIO ATUAL (Brasil): ${currentTime}
+SAUDAÇÃO CONTEXTUAL: ${appropriateGreeting}
 
-      console.log(`📋 [${analysis.id}] Histórico: ${historyAnalysis.questionsAsked.length} perguntas, ${historyAnalysis.topicsDiscussed.length} tópicos`);
+🚫 PROIBIÇÃO ABSOLUTA: NUNCA USE EMOJIS EM HIPÓTESE ALGUMA! 🚫
 
-      try {
-        const basePersonaPrompt = getPersonaPrompt(analysis.ai_gender || 'male');
-        const currentGreeting = getGreetingByTime();
-        const currentTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+CONTEXTO DA ANÁLISE:
+- Empresa: ${analysis.company_name}
+- Segmento: ${analysis.business_segment || 'não especificado'}
+- Cidade: ${analysis.city || 'não especificado'}
+${analysis.investigation_goals ? `\nOBJETIVOS ESPECÍFICOS A DESCOBRIR:
+${analysis.investigation_goals}\n` : ''}
 
-        const systemPrompt = `${basePersonaPrompt}
+ANÁLISE DO HISTÓRICO:
+${conversationAnalysis.questionsAsked.length > 0 ? `- Já perguntado: ${conversationAnalysis.questionsAsked.slice(-5).join(' | ')}` : '- Nenhuma pergunta feita ainda'}
+${conversationAnalysis.topicsDiscussed.length > 0 ? `- Tópicos discutidos: ${conversationAnalysis.topicsDiscussed.join(', ')}` : ''}
+${conversationAnalysis.recentUserQuestions.length > 0 ? `- Últimas perguntas do vendedor: ${conversationAnalysis.recentUserQuestions.join(' | ')}` : ''}
 
-⏰ INFORMAÇÕES DE HORÁRIO (Use apenas na PRIMEIRA mensagem):
-- Horário atual: ${currentTime}
-- Saudação apropriada: "${currentGreeting}"
-- REGRA: Use APENAS a saudação apropriada ao horário na primeira mensagem
+🎯 REGRAS CRÍTICAS DE CONVERSA NATURAL:
 
-CONTEXTO DA CONVERSA:
-- Cidade: ${analysis.city}
-- Empresa: ${analysis.company_name || 'empresa'}
-
-🔍 ANÁLISE DO HISTÓRICO (NÃO REPETIR):
-TÓPICOS DISCUTIDOS: ${historyAnalysis.topicsDiscussed.join(', ') || 'Nenhum'}
-PERGUNTAS FEITAS: ${historyAnalysis.questionsAsked.slice(-5).join(' | ') || 'Nenhuma'}
-REAÇÕES USADAS: ${historyAnalysis.reactionsUsed.slice(-8).join(', ') || 'Nenhuma'}
-REAÇÕES DISPONÍVEIS: ${availableReactions.slice(0, 8).join(', ')}
-
-⚠️ REGRAS ANTI-REPETIÇÃO CRÍTICAS:
-❌ NÃO repetir perguntas ou tópicos já discutidos
-❌ NÃO usar reações já usadas
-✅ Usar APENAS reações disponíveis
-✅ Avançar para novos tópicos
-⛔ PROIBIÇÃO ABSOLUTA: NUNCA USE EMOJIS EM HIPÓTESE ALGUMA
-
-LEMBRE-SE: Comece com "${currentGreeting}" se for a primeira mensagem. NUNCA use emojis.
-
-PERSONALIDADE:
-- Empático (8/10) - educado, simpático
-- Cauteloso (6/10) - primeira vez, quer ter certeza
-- Curioso (7/10) - faz perguntas, demonstra interesse
-
-COMPORTAMENTO CRÍTICO:
-
-1. LINGUAGEM COLOQUIAL BRASILEIRA (usar ocasionalmente):
-   - "vcs" ao invés de "vocês"
-   - "pra" ao invés de "para"
-   - "tá" ao invés de "está"
-   - "né" no final
-   - "to" ao invés de "estou"
-
-2. FORMATO DE MENSAGEM:
-   - NUNCA incluir \\n no texto
-   - Cada mensagem é UMA string limpa
-   - Máximo 2 linhas curtas
-   - Seja direto e objetivo
-
-3. VARIAÇÃO TOTAL - NUNCA REPETIR:
-   ❌ PROIBIDO: "Ah, legal, [repetir]"
-   ❌ PROIBIDO: "Hmmm, [pergunta]"
-   ❌ PROIBIDO: "Massa, [reação]"
+1. RESPONDER PRIMEIRO, PERGUNTAR DEPOIS:
+   - SE a última mensagem do vendedor tiver uma PERGUNTA (contém "?"), você DEVE responder objetivamente ANTES de fazer sua próxima pergunta
+   - Resposta deve ser CURTA (1-2 linhas), direta e natural
+   - Só DEPOIS da resposta, faça UMA nova pergunta relacionada ao objetivo
    
-   ✅ VARIAR COMPLETAMENTE:
-   - "entendi"
-   - "beleza"
-   - "ok"
-   - "certo"
-   - "bom saber"
-   - Ou fazer pergunta direta sem reação
+   Exemplos:
+   Vendedor: "Quantos pães você quer?"
+   ❌ ERRADO: "E vocês fazem entrega?"
+   ✅ CORRETO: "uns 6 pães mesmo, vocês fazem entrega?"
+   
+   Vendedor: "Para quando você precisa?"
+   ❌ ERRADO: "Qual é o preço?"
+   ✅ CORRETO: "pra amanhã de manhã, qual o valor?"
 
-4. UMA PERGUNTA POR VEZ:
-   - Fazer apenas UMA pergunta curta
-   - Aguardar resposta antes da próxima
+2. UMA PERGUNTA POR VEZ:
+   - Faça APENAS uma pergunta por mensagem
+   - Aguarde a resposta antes de avançar
+   - Não atropele o vendedor
 
-5. EMOJIS:
-   Emojis usados: ${emojiCount}/3 ${emojiCount >= 3 ? '- NÃO USE MAIS EMOJIS' : '- Máximo 1 emoji se apropriado'}
+3. NATURALIDADE BRASILEIRA:
+   - Use linguagem coloquial: "vcs", "pra", "tá", "né", "uns", "umas"
+   - Mensagens curtas (máximo 2-3 linhas)
+   - Tom casual mas educado
+   - ZERO emojis
 
-6. MENSAGENS CURTAS:
-   Exemplos CORRETOS:
-   - "quanto custa?"
-   - "e o prazo?"
-   - "tem garantia?"
-   - "entendi, valeu"
-   - "beleza, vou pensar"
+4. PROGRESSÃO GRADUAL:
+   - Não pareça ansioso ou apressado
+   - Deixe a conversa fluir naturalmente
+   - Contextualize suas perguntas baseado nas respostas anteriores
 
-REGRAS DE OURO:
-✅ Mensagens curtas e diretas
-✅ NUNCA repetir "ah massa" ou "hmmm"
-✅ NUNCA usar \\n no texto
-✅ Variar completamente cada resposta
-✅ Parecer 100% humano brasileiro
+PRÓXIMO PASSO: ${nextStepInstruction}`;
 
-❌ NUNCA mencionar que é IA
-❌ NUNCA repetir padrões
-❌ NUNCA mensagens longas`;
+      // Construir userPrompt
+      const recentMessages = messages.slice(-6);
+      const lastSellerMessage = messages.filter((m: any) => m.role === 'user').slice(-1)[0];
+      const hasSellerQuestion = lastSellerMessage?.content?.includes('?');
 
-        let userPrompt = '';
-        
-        if (shouldFinish) {
-          // Forçar finalização
-          userPrompt = `ENCERRAR CONVERSA AGORA
+      const userPrompt = `HISTÓRICO RECENTE DA CONVERSA:
+${recentMessages.map((m: any) => `${m.role === 'user' ? 'VENDEDOR' : 'VOCÊ'}: ${m.content}`).join('\n')}
 
-Você já fez ${aiQuestionsCount} perguntas e coletou informações suficientes.
+${hasSellerQuestion ? `
+⚠️ ATENÇÃO: O vendedor fez uma PERGUNTA!
+Última mensagem do vendedor: "${lastSellerMessage.content}"
 
-Última mensagem do vendedor:
-${groupedContent}
+VOCÊ DEVE:
+1. Responder a pergunta de forma CURTA e DIRETA (1-2 linhas)
+2. Depois, fazer UMA pergunta relacionada ao objetivo: ${nextQuestion?.expected_info || 'Continue a conversa'}
 
-INSTRUÇÕES:
-Agradeça e finalize educadamente usando UMA destas opções:
+Exemplo de formato:
+"[resposta curta à pergunta do vendedor], [sua pergunta]"
+` : `
+TAREFA: ${nextQuestion?.expected_info || 'Continue a conversa de forma natural'}
+Faça UMA pergunta objetiva e natural.
+`}
 
-Opção 1: "entendi tudo, vou pensar aqui, obrigado!"
-Opção 2: "beleza, me ajudou bastante, valeu!"
-Opção 3: "legal, vou avaliar e depois retorno, obrigado!"
-Opção 4: "certo, preciso pensar melhor, valeu pela atenção!"
+LEMBRE-SE:
+- ZERO emojis
+- Linguagem coloquial brasileira (vcs, pra, tá, né)
+- Máximo 2-3 linhas
+- Tom casual mas educado`;
 
-Escolha uma opção e envie EXATAMENTE como está (sem modificar).`;
-        } else if (isFreestyle) {
-          // Modo conversa livre
-          userPrompt = `CONVERSA LIVRE - ${aiQuestionsCount} perguntas feitas
+      // Chamar OpenAI GPT-4o
+      const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAIKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.9,
+          max_tokens: 150,
+        }),
+      });
 
-Histórico recente:
-${messages.slice(-6).map((m: any) => `${m.role === 'ai' ? 'Você' : 'Vendedor'}: ${m.content}`).join('\n')}
+      if (!aiResponse.ok) {
+        console.error(`❌ [${analysis.id}] OpenAI falhou: ${aiResponse.status}`);
+        throw new Error(`OpenAI API error: ${aiResponse.status}`);
+      }
 
-Última mensagem do vendedor:
-${groupedContent}
+      const aiData = await aiResponse.json();
+      let finalResponse = aiData.choices?.[0]?.message?.content?.trim() || 'oi, tudo bem?';
 
-INSTRUÇÕES:
-1. Reagir de forma VARIADA (não repetir "ah massa" ou "hmmm")
-2. Fazer UMA pergunta curta e direta
-3. SEM \\n no texto
-4. Máximo 2 linhas
+      // Pós-processamento: garantir que respondeu à pergunta do vendedor
+      if (hasSellerQuestion) {
+        const sellerQuestion = lastSellerMessage.content.toLowerCase();
+        const responseHasDirectAnswer = (
+          (sellerQuestion.includes('quanto') && /\d/.test(finalResponse)) ||
+          (sellerQuestion.includes('quando') && /(amanhã|hoje|semana|dia|hora)/i.test(finalResponse)) ||
+          (sellerQuestion.includes('qual') && finalResponse.split('\n')[0].length < 50) ||
+          finalResponse.toLowerCase().includes('sim') ||
+          finalResponse.toLowerCase().includes('não')
+        );
 
-Exemplo: "e quanto tempo leva?"`;
-        } else {
-          // Modo perguntas estruturadas
-          userPrompt = `PERGUNTA ${currentQuestionIndex + 1}/${totalQuestions} - ${aiQuestionsCount} feitas
+        if (!responseHasDirectAnswer) {
+          console.log(`🔧 [${analysis.id}] Injetando resposta direta à pergunta do vendedor`);
+          // Injetar resposta plausível
+          const directAnswers: Record<string, string> = {
+            'quanto': 'uns 6 mesmo',
+            'quando': 'pra amanhã de manhã',
+            'onde': 'aqui no centro',
+            'qual': 'o básico mesmo'
+          };
 
-Histórico recente:
-${messages.slice(-4).map((m: any) => `${m.role === 'ai' ? 'Você' : 'Vendedor'}: ${m.content}`).join('\n')}
-
-Última mensagem:
-${groupedContent}
-
-Próxima pergunta:
-"${nextQuestion.question}"
-
-INSTRUÇÕES:
-1. Reaja de forma VARIADA (não repetir palavras)
-2. Faça a pergunta de forma natural
-3. SEM \\n no texto
-4. Máximo 2 linhas curtas
-
-Exemplo: "entendi, e ${nextQuestion.question}"`;
-        }
-
-        const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openAIKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt }
-            ],
-            temperature: 0.9,
-            max_tokens: 100,
-          }),
-        });
-
-        if (!aiResponse.ok) {
-          const status = aiResponse.status;
-          console.error(`❌ [${analysis.id}] OpenAI falhou: ${status}`);
-          
-          if (status === 429) {
-            console.error('Rate limit - usando resposta padrão');
-          } else if (status === 401) {
-            console.error('Unauthorized - verifique OPENAI_API_KEY');
-          }
-          // Fallback
-          if (!isFreestyle && nextQuestion) {
-            adaptedQuestion = nextQuestion.question;
-          }
-        } else {
-          const aiData = await aiResponse.json();
-          let proposedResponse = aiData.choices?.[0]?.message?.content?.trim() || adaptedQuestion;
-          
-          // ============= VALIDAÇÃO ANTI-REPETIÇÃO =============
-          const isRepetitive = isQuestionSimilar(proposedResponse, historyAnalysis.questionsAsked);
-          
-          if (isRepetitive) {
-            console.warn(`⚠️ [${analysis.id}] Pergunta repetitiva detectada!`);
-            proposedResponse = nextQuestion?.question || adaptedQuestion;
-          }
-          
-          // Substituir reações repetidas
-          for (const usedReaction of historyAnalysis.reactionsUsed) {
-            if (proposedResponse.toLowerCase().includes(usedReaction)) {
-              const newReaction = availableReactions[0] || 'entendi';
-              proposedResponse = proposedResponse.replace(new RegExp(usedReaction, 'gi'), newReaction);
+          for (const [key, answer] of Object.entries(directAnswers)) {
+            if (sellerQuestion.includes(key)) {
+              finalResponse = `${answer}, ${finalResponse}`;
+              break;
             }
           }
-          
-          adaptedQuestion = proposedResponse;
-          console.log(`🤖 [${analysis.id}] OpenAI respondeu: ${adaptedQuestion}`);
-        }
-      } catch (error) {
-        console.error(`❌ [${analysis.id}] Erro na OpenAI:`, error);
-        if (!isFreestyle && nextQuestion) {
-          adaptedQuestion = nextQuestion.question;
         }
       }
 
-      // Limpar mensagem mantendo quebras de linha naturais
-      const cleanMessage = adaptedQuestion
-        .replace(/^Cliente Oculto:\s*/i, '')
-        .replace(/^Você:\s*/i, '')
-        .replace(/\n{3,}/g, '\n\n')  // Máximo 2 quebras seguidas
-        .trim();
+      console.log(`🤖 [${analysis.id}] Resposta final: ${finalResponse.substring(0, 100)}...`);
 
-      console.log(`📤 [${analysis.id}] Preparando para enviar mensagem`);
+      // Enviar mensagem via Evolution
+      await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, finalResponse);
 
-      // 1. ENVIAR PRESENCE "COMPOSING" (digitando...)
-      await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
-        method: 'POST',
-        headers: {
-          'apikey': actualEvolutionKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          number: analysis.target_phone,
-          state: 'composing'
-        })
-      });
-
-      console.log(`⌨️ [${analysis.id}] Mostrando "digitando..."`);
-
-      // 2. DELAY REALISTA COM HEARTBEATS DE "DIGITANDO..." - FASE 4 ATUALIZADO
-      // Import da configuração (simulado inline)
-      const calculateRealisticDelay = (messageLength: number, analysisDepth: string): number => {
-        const DEPTH_CONFIG = {
-          quick: { minDelay: 30, maxDelay: 120 },
-          intermediate: { minDelay: 60, maxDelay: 240 },
-          deep: { minDelay: 60, maxDelay: 360 }
-        };
-        const config = DEPTH_CONFIG[analysisDepth as keyof typeof DEPTH_CONFIG] || DEPTH_CONFIG.quick;
-        let min = config.minDelay;
-        let max = config.maxDelay;
-        if (messageLength <= 50) max = Math.floor((min + max) / 2);
-        else if (messageLength > 150) min = Math.floor((min + max) / 2);
-        return (Math.floor(Math.random() * (max - min + 1) + min)) * 1000;
-      };
-      
-      const totalDelay = calculateRealisticDelay(cleanMessage.length, analysis.analysis_depth);
-
-      console.log(`⏱️ [${analysis.id}] Aguardando ${Math.round(totalDelay/1000)}s...`);
-      const delayPromise = new Promise((resolve) => setTimeout(resolve, totalDelay));
-      const heartbeatPromise = (async () => {
-        const interval = 2500;
-        let elapsed = 0;
-        while (elapsed + interval < totalDelay) {
-          await new Promise((r) => setTimeout(r, interval));
-          elapsed += interval;
-          await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
-            method: 'POST',
-            headers: { 'apikey': actualEvolutionKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ number: analysis.target_phone, state: 'composing' })
-          });
-        }
-      })();
-      await Promise.all([delayPromise, heartbeatPromise]);
-
-      // 3. ENVIAR UMA MENSAGEM COMPLETA
-      const evolutionPayload = {
-        number: analysis.target_phone,
-        text: cleanMessage
-      };
-
-      const evolutionResponse = await fetch(
-        `${actualEvolutionUrl}/message/sendText/${actualEvolutionInstance}`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': actualEvolutionKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(evolutionPayload),
-        }
-      );
-
-      if (!evolutionResponse.ok) {
-        throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
-      }
-
-      console.log(`✅ [${analysis.id}] Mensagem enviada com sucesso`);
-
-      // 4. PARAR "DIGITANDO..."
-      await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
-        method: 'POST',
-        headers: {
-          'apikey': actualEvolutionKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          number: analysis.target_phone,
-          state: 'available'
-        })
-      });
-
-      // Salvar mensagem da IA (mensagem completa)
+      // Salvar mensagem
       await supabase.from('conversation_messages').insert({
         analysis_id: analysis.id,
         role: 'ai',
-        content: cleanMessage,
-        metadata: { 
-          processed: true,
-          order: currentQuestionIndex + 1,
+        content: finalResponse,
+        metadata: {
+          question_order: nextQuestion?.order || currentQuestionIndex + 1,
           expected_info: nextQuestion?.expected_info || 'conversa livre',
-          grouped_responses: claimedMessages.length,
-          is_freestyle: isFreestyle,
-          ssp_version: 'v3.0',
-          ai_questions: aiQuestionsCount + 1,
-          emoji_count: emojiCount,
-          has_presence: true,
-          delay_ms: totalDelay
+          answered_seller_question: hasSellerQuestion || false
         }
       });
 
-      // Marcar APENAS as mensagens reivindicadas como processadas
+      // Marcar mensagens como processadas
       for (const msg of claimedMessages) {
         await supabase
           .from('conversation_messages')
@@ -720,246 +513,123 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
           .eq('id', msg.id);
       }
 
-      // Atualizar status - se finalizou, mudar para processing
-      if (shouldFinish) {
-        console.log(`✅ [${analysis.id}] Conversa finalizada - iniciando análise`);
-        
-        await supabase
-          .from('analysis_requests')
-          .update({
-            status: 'processing',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', analysis.id);
+      // Atualizar last_message_at
+      await supabase
+        .from('analysis_requests')
+        .update({ last_message_at: new Date().toISOString() })
+        .eq('id', analysis.id);
 
-        // Invocar geração de métricas
-        await supabase.functions.invoke('generate-metrics', {
-          body: { analysis_id: analysis.id }
-        });
-      } else {
-        // Apenas atualizar last_message_at
-        await supabase
-          .from('analysis_requests')
-          .update({ last_message_at: new Date().toISOString() })
-          .eq('id', analysis.id);
-      }
-
-      return { analysis_id: analysis.id, action: 'responded', grouped: unprocessedMessages.length, finished: shouldFinish };
+      return { analysis_id: analysis.id, action: 'responded', grouped: claimedMessages.length };
     }
 
-    // CENÁRIO B: Cliente não respondeu (NUDGE após 20 minutos)
+    // CENÁRIO B: Nudge (20 minutos sem resposta)
     if (lastMessage.role === 'ai') {
-      const nudgeCount = messages.filter((m: any) => 
-        m.role === 'ai' && m.metadata?.is_nudge === true
-      ).length;
-
-      // MUDANÇA: Primeiro nudge após 20 minutos (1200000ms)
       const TWENTY_MINUTES = 20 * 60 * 1000;
-      
-      if (nudgeCount === 0 && timeSinceLastMessage > TWENTY_MINUTES) {
-        console.log(`👋 [${analysis.id}] Enviando nudge após 20 minutos`);
 
-        // Gerar nudge humanizado com IA
-        // Selecionar mensagem de nudge aleatória (SEM EMOJIS)
-        const nudgeMessages = [
-          "oi, tudo bem?",
-          "opa, ainda tá aí?",
-          "e aí, consegue me ajudar?"
+      if (timeSinceLastMessage > TWENTY_MINUTES && !analysis.nudge_sent) {
+        console.log(`👋 [${analysis.id}] Enviando nudge (20+ min sem resposta)`);
+
+        const nudgeVariations = [
+          'oi, tudo bem?',
+          'opa, ainda tá aí?',
+          'e aí, consegue me ajudar?',
+          'oi, viu minha msg?'
         ];
-        const nudgeText = nudgeMessages[Math.floor(Math.random() * nudgeMessages.length)];
 
-        // Enviar presence + pequeno delay antes do nudge
-        await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
-          method: 'POST',
-          headers: { 'apikey': actualEvolutionKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ number: analysis.target_phone, state: 'composing' })
-        });
+        const nudgeMessage = nudgeVariations[Math.floor(Math.random() * nudgeVariations.length)];
 
-        const nudgeBase = 1500;
-        const nudgeChar = Math.min(nudgeText.length * 15, 2000);
-        const nudgeDelay = nudgeBase + nudgeChar;
-        await new Promise((r) => setTimeout(r, nudgeDelay));
+        await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, nudgeMessage);
 
-        // Enviar nudge
-        const evolutionPayload = {
-          number: analysis.target_phone,
-          text: nudgeText
-        };
-
-        const evolutionResponse = await fetch(
-          `${actualEvolutionUrl}/message/sendText/${actualEvolutionInstance}`,
-          {
-            method: 'POST',
-            headers: {
-              'apikey': actualEvolutionKey,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(evolutionPayload),
-          }
-        );
-
-        if (!evolutionResponse.ok) {
-          throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
-        }
-
-        await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
-          method: 'POST',
-          headers: { 'apikey': actualEvolutionKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ number: analysis.target_phone, state: 'available' })
-        });
-
-        // Salvar nudge
         await supabase.from('conversation_messages').insert({
           analysis_id: analysis.id,
           role: 'ai',
-          content: nudgeText,
-          metadata: { 
-            processed: true,
-            is_nudge: true,
-            nudge_type: '20min',
-            has_presence: true,
-            delay_ms: nudgeDelay
-          }
+          content: nudgeMessage,
+          metadata: { processed: true, is_nudge: true, nudge_type: '20min' }
         });
 
         await supabase
           .from('analysis_requests')
-          .update({ last_message_at: new Date().toISOString() })
+          .update({
+            nudge_sent: true,
+            last_message_at: new Date().toISOString()
+          })
           .eq('id', analysis.id);
 
-        return { analysis_id: analysis.id, action: 'nudge_sent', type: '20min' };
+        return { analysis_id: analysis.id, action: 'nudge_sent' };
       }
     }
 
-    // CENÁRIO C: REATIVAÇÃO (FASE 5 - Análises Intermediária e Profunda)
-    const reactivationsSent = analysis.metadata?.reactivations_sent || 0;
-    
-    // REATIVAÇÃO INTERMEDIÁRIA (24h)
-    if (analysis.analysis_depth === 'intermediate' && lastMessage.role === 'assistant') {
-      const hoursWaiting = timeSinceLastMessage / (1000 * 60 * 60);
-      const reactivationTimes = [2, 6, 12]; // horas
-      
-      for (let i = 0; i < reactivationTimes.length; i++) {
-        if (hoursWaiting >= reactivationTimes[i] && reactivationsSent === i) {
-          const messages = [
-            "Oi! Conseguiu dar uma olhada naquelas informações que mencionou?",
-            "Tudo bem por aí? Fiquei pensando sobre o que conversamos...",
-            "Desculpa incomodar de novo, mas conseguiu avaliar se faz sentido pra mim?"
-          ];
-          
-          console.log(`🔁 [${analysis.id}] Reativação intermediária ${i + 1}/3 (${hoursWaiting.toFixed(1)}h)`);
-          
-          await fetch(`${evolutionUrl}/message/sendText/${evolutionInstance}`, {
-            method: 'POST',
-            headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              number: analysis.target_phone,
-              text: messages[i]
-            })
-          });
-          
-          await supabase.from('conversation_messages').insert({
-            analysis_id: analysis.id,
-            role: 'assistant',
-            content: messages[i],
-            metadata: { processed: true, is_reactivation: true, reactivation_number: i + 1 }
-          });
-          
-          await supabase
-            .from('analysis_requests')
-            .update({
-              metadata: { ...analysis.metadata, reactivations_sent: i + 1 },
-              last_message_at: new Date().toISOString()
-            })
-            .eq('id', analysis.id);
-          
-          return { analysis_id: analysis.id, action: 'reactivation_sent', number: i + 1 };
-        }
-      }
-    }
-    
-    // REATIVAÇÃO PROFUNDA (5 dias)
-    if (analysis.analysis_depth === 'deep' && lastMessage.role === 'assistant') {
-      const daysSinceCreated = (Date.now() - new Date(analysis.created_at).getTime()) / (1000 * 60 * 60 * 24);
-      const reactivationDays = [2, 3, 4];
-      
-      for (let i = 0; i < reactivationDays.length; i++) {
-        const targetDay = reactivationDays[i];
-        
-        if (daysSinceCreated >= targetDay && reactivationsSent === i) {
-          const messagesByDay = [
-            ["Oi! Voltando aqui... conseguiu ver melhor sobre o que conversamos?", "Opa, tudo bem? Ainda to interessado(a), tem alguma novidade?"],
-            ["Olá! Ainda to pesquisando sobre isso... consegue me passar mais detalhes?", "Oi de novo! Fiquei pensando aqui, será que consegue me ajudar com mais informações?"],
-            ["Oi! Desculpa a insistência, mas realmente preciso decidir logo. Pode me ajudar?", "Voltando aqui mais uma vez... preciso fechar isso essa semana. Consegue me passar os detalhes?"]
-          ];
-          
-          const msg = messagesByDay[i][Math.floor(Math.random() * messagesByDay[i].length)];
-          
-          console.log(`🔁 [${analysis.id}] Reativação profunda ${i + 1}/3 (dia ${daysSinceCreated.toFixed(1)})`);
-          
-          await fetch(`${evolutionUrl}/message/sendText/${evolutionInstance}`, {
-            method: 'POST',
-            headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              number: analysis.target_phone,
-              text: msg
-            })
-          });
-          
-          await supabase.from('conversation_messages').insert({
-            analysis_id: analysis.id,
-            role: 'assistant',
-            content: msg,
-            metadata: { processed: true, is_reactivation: true, reactivation_day: targetDay }
-          });
-          
-          await supabase
-            .from('analysis_requests')
-            .update({
-              metadata: { ...analysis.metadata, reactivations_sent: i + 1, [`reactivation_day_${targetDay}`]: new Date().toISOString() },
-              last_message_at: new Date().toISOString()
-            })
-            .eq('id', analysis.id);
-          
-          return { analysis_id: analysis.id, action: 'reactivation_sent', day: targetDay };
-        }
-      }
-    }
+    // CENÁRIO C: Reativações (4h e 24h para análises deep)
+    const hoursSinceLastMessage = timeSinceLastMessage / (60 * 60 * 1000);
+    const metadata = analysis.metadata || {};
+    const reactivationsSent = metadata.reactivations_sent || 0;
 
-    // CENÁRIO D: TIMEOUT CONFIGURÁVEL (FASE 5)
-    const DEPTH_TIMEOUTS = {
-      quick: 30 * 60 * 1000, // 30 minutos
-      intermediate: 24 * 60 * 60 * 1000, // 24 horas
-      deep: 5 * 24 * 60 * 60 * 1000 // 5 dias
-    };
-    
-    const messageCount = messages.length;
-    const MAX_INTERACTIONS = {
-      quick: 10, // 5 interações x 2 (user + assistant)
-      intermediate: 20, // 10 interações x 2
-      deep: 30 // 15 interações x 2
-    };
-    
-    const timeoutThreshold = DEPTH_TIMEOUTS[analysis.analysis_depth as keyof typeof DEPTH_TIMEOUTS] || DEPTH_TIMEOUTS.quick;
-    const maxMessages = MAX_INTERACTIONS[analysis.analysis_depth as keyof typeof MAX_INTERACTIONS] || MAX_INTERACTIONS.quick;
-    const timeSinceStart = Date.now() - new Date(analysis.created_at).getTime();
-    
-    if (timeSinceStart >= timeoutThreshold || messageCount >= maxMessages) {
-      console.log(`⏰ [${analysis.id}] Timeout (${(timeSinceStart/1000/60).toFixed(0)}min ou ${messageCount} msgs) - finalizando`);
+    // Primeira reativação: 4 horas
+    if (hoursSinceLastMessage >= 4 && reactivationsSent === 0 && analysis.analysis_depth === 'deep' && lastMessage.role === 'ai') {
+      console.log(`🔄 [${analysis.id}] Primeira reativação (4h sem resposta)`);
+
+      const greeting = getGreetingByTime();
+      const firstReactivationMessages = [
+        `${greeting}, tudo bem? ainda pode me ajudar?`,
+        `oi, ${greeting}, conseguiu ver minha mensagem?`,
+        `${greeting}, ainda tá disponível pra conversar?`
+      ];
+
+      const reactivationMsg = firstReactivationMessages[Math.floor(Math.random() * firstReactivationMessages.length)];
+
+      await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, reactivationMsg);
+
+      await supabase.from('conversation_messages').insert({
+        analysis_id: analysis.id,
+        role: 'ai',
+        content: reactivationMsg,
+        metadata: { type: 'reactivation_4h' }
+      });
 
       await supabase
         .from('analysis_requests')
-        .update({ 
-          status: 'processing',
-          completed_at: new Date().toISOString()
+        .update({
+          last_message_at: new Date().toISOString(),
+          metadata: { ...metadata, reactivations_sent: 1, last_reactivation_at: new Date().toISOString() }
         })
         .eq('id', analysis.id);
 
-      await supabase.functions.invoke('generate-metrics', {
-        body: { analysis_id: analysis.id }
+      console.log(`✅ [${analysis.id}] Primeira reativação enviada (4h)`);
+      return { analysis_id: analysis.id, action: 'reactivation_4h' };
+    }
+
+    // Segunda reativação: 24 horas
+    if (hoursSinceLastMessage >= 24 && reactivationsSent === 1 && analysis.analysis_depth === 'deep' && lastMessage.role === 'ai') {
+      console.log(`🔄 [${analysis.id}] Segunda reativação (24h sem resposta)`);
+
+      const greeting = getGreetingByTime();
+      const secondReactivationMessages = [
+        `${greeting}, vi que não conseguimos conversar ainda, tudo bem por aí?`,
+        `oi, ${greeting}, consegue me passar as infos quando der?`,
+        `${greeting}, ainda tem interesse em atender?`
+      ];
+
+      const reactivationMsg = secondReactivationMessages[Math.floor(Math.random() * secondReactivationMessages.length)];
+
+      await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, reactivationMsg);
+
+      await supabase.from('conversation_messages').insert({
+        analysis_id: analysis.id,
+        role: 'ai',
+        content: reactivationMsg,
+        metadata: { type: 'reactivation_24h' }
       });
 
-      return { analysis_id: analysis.id, action: 'timeout' };
+      await supabase
+        .from('analysis_requests')
+        .update({
+          last_message_at: new Date().toISOString(),
+          metadata: { ...metadata, reactivations_sent: 2, last_reactivation_at: new Date().toISOString() }
+        })
+        .eq('id', analysis.id);
+
+      console.log(`✅ [${analysis.id}] Segunda reativação enviada (24h)`);
+      return { analysis_id: analysis.id, action: 'reactivation_24h' };
     }
 
     return { analysis_id: analysis.id, action: 'no_action_needed' };
@@ -968,4 +638,22 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
     console.error(`❌ [${analysis.id}] Erro:`, error);
     throw error;
   }
+}
+
+// Helper para enviar texto
+async function sendText(url: string, key: string, instance: string, phone: string, text: string) {
+  const response = await fetch(`${url}/message/sendText/${instance}`, {
+    method: 'POST',
+    headers: {
+      'apikey': key,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ number: phone, text }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Evolution API error: ${await response.text()}`);
+  }
+
+  console.log(`✅ Mensagem enviada: ${text.substring(0, 50)}...`);
 }
