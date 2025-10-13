@@ -55,6 +55,8 @@ export type Database = {
           competitor_url: string | null
           completed_at: string | null
           created_at: string
+          first_reactivation_sent: boolean | null
+          first_reactivation_sent_at: string | null
           id: string
           investigation_goals: string | null
           last_message_at: string | null
@@ -83,6 +85,8 @@ export type Database = {
           competitor_url?: string | null
           completed_at?: string | null
           created_at?: string
+          first_reactivation_sent?: boolean | null
+          first_reactivation_sent_at?: string | null
           id?: string
           investigation_goals?: string | null
           last_message_at?: string | null
@@ -111,6 +115,8 @@ export type Database = {
           competitor_url?: string | null
           completed_at?: string | null
           created_at?: string
+          first_reactivation_sent?: boolean | null
+          first_reactivation_sent_at?: string | null
           id?: string
           investigation_goals?: string | null
           last_message_at?: string | null

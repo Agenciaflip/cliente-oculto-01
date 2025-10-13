@@ -1,7 +1,19 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getPersonaPrompt } from "../_shared/prompts/personas.ts";
+
+// Função auxiliar para saudação contextual
+function getGreetingByTime(): string {
+  const now = new Date();
+  const brazilTime = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  const hour = brazilTime.getHours();
+  
+  if (hour >= 5 && hour < 12) return "bom dia";
+  if (hour >= 12 && hour < 18) return "boa tarde";
+  return "boa noite";
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -378,8 +390,15 @@ async function processConversation(
 
       try {
         const basePersonaPrompt = getPersonaPrompt(analysis.ai_gender || 'male');
+        const currentGreeting = getGreetingByTime();
+        const currentTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
         const systemPrompt = `${basePersonaPrompt}
+
+⏰ INFORMAÇÕES DE HORÁRIO (Use apenas na PRIMEIRA mensagem):
+- Horário atual: ${currentTime}
+- Saudação apropriada: "${currentGreeting}"
+- REGRA: Use APENAS a saudação apropriada ao horário na primeira mensagem
 
 CONTEXTO DA CONVERSA:
 - Cidade: ${analysis.city}
@@ -391,11 +410,14 @@ PERGUNTAS FEITAS: ${historyAnalysis.questionsAsked.slice(-5).join(' | ') || 'Nen
 REAÇÕES USADAS: ${historyAnalysis.reactionsUsed.slice(-8).join(', ') || 'Nenhuma'}
 REAÇÕES DISPONÍVEIS: ${availableReactions.slice(0, 8).join(', ')}
 
-⚠️ REGRAS ANTI-REPETIÇÃO:
+⚠️ REGRAS ANTI-REPETIÇÃO CRÍTICAS:
 ❌ NÃO repetir perguntas ou tópicos já discutidos
 ❌ NÃO usar reações já usadas
 ✅ Usar APENAS reações disponíveis
 ✅ Avançar para novos tópicos
+⛔ PROIBIÇÃO ABSOLUTA: NUNCA USE EMOJIS EM HIPÓTESE ALGUMA
+
+LEMBRE-SE: Comece com "${currentGreeting}" se for a primeira mensagem. NUNCA use emojis.
 
 PERSONALIDADE:
 - Empático (8/10) - educado, simpático
@@ -725,74 +747,31 @@ Exemplo: "entendi, e ${nextQuestion.question}"`;
       return { analysis_id: analysis.id, action: 'responded', grouped: unprocessedMessages.length, finished: shouldFinish };
     }
 
-    // CENÁRIO B: Cliente não respondeu (NUDGES)
+    // CENÁRIO B: Cliente não respondeu (NUDGE após 20 minutos)
     if (lastMessage.role === 'ai') {
       const nudgeCount = messages.filter((m: any) => 
         m.role === 'ai' && m.metadata?.is_nudge === true
       ).length;
 
-      // Tempos para nudges: 2min, 5min, 10min
-      const nudgeThresholds = [120000, 300000, 600000];
+      // MUDANÇA: Primeiro nudge após 20 minutos (1200000ms)
+      const TWENTY_MINUTES = 20 * 60 * 1000;
       
-      if (nudgeCount < 3 && timeSinceLastMessage > nudgeThresholds[nudgeCount]) {
-        const nudgeTypes = ['gentle', 'moderate', 'direct'];
-        const nudgeType = nudgeTypes[nudgeCount];
-
-        console.log(`👋 [${analysis.id}] Enviando nudge ${nudgeType} (${nudgeCount + 1}/3)`);
+      if (nudgeCount === 0 && timeSinceLastMessage > TWENTY_MINUTES) {
+        console.log(`👋 [${analysis.id}] Enviando nudge após 20 minutos`);
 
         // Gerar nudge humanizado com IA
-        const conversationHistory = messages
-          .map((m: any) => `${m.role === 'ai' ? 'Cliente Oculto' : 'Empresa'}: ${m.content}`)
-          .join('\n');
-
-        const nudgePrompts = {
-          gentle: 'Gentil e educado, como quem está aguardando uma resposta',
-          moderate: 'Moderadamente curioso, demonstrando interesse genuíno',
-          direct: 'Mais direto, mas ainda educado, como quem precisa de uma resposta'
-        };
-
-        let nudgeText = 'Oi, conseguiu ver minha mensagem?';
-
-        try {
-          const nudgeResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${openAIKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [
-                {
-                  role: 'system',
-                  content: `Você é um cliente oculto ${analysis.persona}. Gere uma mensagem curta de follow-up.`
-                },
-                {
-                  role: 'user',
-                  content: `CONVERSA:
-${conversationHistory}
-
-Gere uma mensagem de nudge ${nudgePrompts[nudgeType as keyof typeof nudgePrompts]}. 
-Máximo 15 palavras. Seja natural e humano.`
-                }
-              ],
-              temperature: 0.7,
-              max_tokens: 50,
-            }),
-          });
-
-          if (nudgeResponse.ok) {
-            const nudgeData = await nudgeResponse.json();
-            nudgeText = nudgeData.choices?.[0]?.message?.content?.trim() || nudgeText;
-          }
-        } catch (error) {
-          console.error(`❌ [${analysis.id}] Erro ao gerar nudge:`, error);
-        }
+        // Selecionar mensagem de nudge aleatória (SEM EMOJIS)
+        const nudgeMessages = [
+          "oi, tudo bem?",
+          "opa, ainda tá aí?",
+          "e aí, consegue me ajudar?"
+        ];
+        const nudgeText = nudgeMessages[Math.floor(Math.random() * nudgeMessages.length)];
 
         // Enviar presence + pequeno delay antes do nudge
-        await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+        await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
           method: 'POST',
-          headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+          headers: { 'apikey': actualEvolutionKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({ number: analysis.target_phone, state: 'composing' })
         });
 
@@ -808,11 +787,11 @@ Máximo 15 palavras. Seja natural e humano.`
         };
 
         const evolutionResponse = await fetch(
-          `${evolutionUrl}/message/sendText/${evolutionInstance}`,
+          `${actualEvolutionUrl}/message/sendText/${actualEvolutionInstance}`,
           {
             method: 'POST',
             headers: {
-              'apikey': evolutionKey,
+              'apikey': actualEvolutionKey,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify(evolutionPayload),
@@ -823,9 +802,9 @@ Máximo 15 palavras. Seja natural e humano.`
           throw new Error(`Evolution API error: ${await evolutionResponse.text()}`);
         }
 
-        await fetch(`${evolutionUrl}/chat/sendPresence/${evolutionInstance}`, {
+        await fetch(`${actualEvolutionUrl}/chat/sendPresence/${actualEvolutionInstance}`, {
           method: 'POST',
-          headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+          headers: { 'apikey': actualEvolutionKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({ number: analysis.target_phone, state: 'available' })
         });
 
@@ -837,7 +816,7 @@ Máximo 15 palavras. Seja natural e humano.`
           metadata: { 
             processed: true,
             is_nudge: true,
-            nudge_type: nudgeType,
+            nudge_type: '20min',
             has_presence: true,
             delay_ms: nudgeDelay
           }
@@ -848,7 +827,7 @@ Máximo 15 palavras. Seja natural e humano.`
           .update({ last_message_at: new Date().toISOString() })
           .eq('id', analysis.id);
 
-        return { analysis_id: analysis.id, action: 'nudge_sent', type: nudgeType };
+        return { analysis_id: analysis.id, action: 'nudge_sent', type: '20min' };
       }
     }
 

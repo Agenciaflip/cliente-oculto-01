@@ -283,22 +283,18 @@ const NewAnalysis = () => {
                 {/* Persona */}
                 <div className="space-y-2">
                   <Label>Persona do Cliente Oculto <span className="text-destructive">*</span></Label>
-                  <RadioGroup name="ai_gender" defaultValue="male" disabled={isLoading} className="space-y-3">
-                    <div className="flex items-start space-x-3 border rounded-lg p-4 hover:bg-accent/50 transition-colors">
-                      <RadioGroupItem value="male" id="male" className="mt-1" />
-                      <div className="space-y-1 flex-1">
-                        <Label htmlFor="male" className="font-semibold cursor-pointer">👨‍💼 Bruno (Homem, 35 anos)</Label>
-                        <p className="text-sm text-muted-foreground">Gerente Comercial, direto, informal. Mensagens curtas (5-30 palavras), máximo 3 emojis.</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3 border rounded-lg p-4 hover:bg-accent/50 transition-colors">
-                      <RadioGroupItem value="female" id="female" className="mt-1" />
-                      <div className="space-y-1 flex-1">
-                        <Label htmlFor="female" className="font-semibold cursor-pointer">👩‍🏫 Fernanda (Mulher, 38 anos)</Label>
-                        <p className="text-sm text-muted-foreground">Coordenadora Pedagógica, detalhista, educada. Mensagens médias (8-50 palavras), máximo 5 emojis.</p>
-                      </div>
-                    </div>
-                  </RadioGroup>
+                  <Select name="ai_gender" defaultValue="male" disabled={isLoading}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="male">👨‍💼 Bruno (35 anos, Gerente Comercial)</SelectItem>
+                      <SelectItem value="female">👩‍🏫 Fernanda (38 anos, Coordenadora Pedagógica)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Escolha qual persona vai interagir com a empresa
+                  </p>
                 </div>
 
                 {/* NOVOS CAMPOS */}
@@ -357,29 +353,6 @@ const NewAnalysis = () => {
                   </p>
                 </div>
 
-                {/* Gênero da IA */}
-                <div className="space-y-2">
-                  <Label>
-                    Gênero do Agente IA <span className="text-destructive">*</span>
-                  </Label>
-                  <RadioGroup name="ai_gender" defaultValue="neutral" disabled={isLoading} className="flex gap-4">
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="male" id="male" />
-                      <Label htmlFor="male" className="font-normal cursor-pointer">Masculino</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="female" id="female" />
-                      <Label htmlFor="female" className="font-normal cursor-pointer">Feminino</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="neutral" id="neutral" />
-                      <Label htmlFor="neutral" className="font-normal cursor-pointer">Neutro</Label>
-                    </div>
-                  </RadioGroup>
-                  <p className="text-xs text-muted-foreground">
-                    Define o nome, tom de voz e linguagem da IA para alinhar com o perfil do cliente ideal.
-                  </p>
-                </div>
 
                 {/* Perfil do Cliente - ATUALIZADO */}
                 <div className="space-y-2">

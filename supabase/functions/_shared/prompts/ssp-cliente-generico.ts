@@ -39,28 +39,28 @@ export const SSP_CONFIG = {
     ]
   },
 
-  // ID-003: Variações de Primeira Mensagem
+  // ID-003: Variações de Primeira Mensagem (SEM EMOJIS)
   FIRST_MESSAGE_VARIATIONS: [
-    // Direta
-    "oi, boa tarde\nvi sobre vocês e fiquei interessado\nvocês trabalham com [SERVICO]?",
-    "olá\nqueria informações sobre [PRODUTO]",
-    "oi\nvi que vcs trabalham com [SERVICO]\npode me passar umas infos?",
+    // Direta com saudação
+    "bom dia, vi sobre vocês e fiquei interessado, vocês trabalham com [SERVICO]?",
+    "boa tarde, queria informações sobre [PRODUTO]",
+    "boa noite, vi que vcs trabalham com [SERVICO], pode me passar umas infos?",
     
     // Com Contexto
-    "olá\num amigo me indicou vocês\nqueria saber mais sobre [PRODUTO]",
-    "oi\nconhecidos falaram bem de vcs\ncomo funciona o serviço?",
+    "bom dia, um amigo me indicou vocês, queria saber mais sobre [PRODUTO]",
+    "boa tarde, conhecidos falaram bem de vcs, como funciona o serviço?",
     
     // Tímida
-    "oi tudo bem?\ndesculpa incomodar\nvocês atendem [REGIAO]?\ntenho interesse aqui",
-    "oi\nprimeira vez que entro em contato\nvocês podem me ajudar?",
+    "oi tudo bem? desculpa incomodar, vocês atendem [REGIAO]? tenho interesse aqui",
+    "bom dia, primeira vez que entro em contato, vocês podem me ajudar?",
     
-    // Empolgada
-    "boa tarde! 😊\nestava pesquisando e achei vocês\nvocês podem me ajudar com informações?",
-    "oi! vi vcs na internet\nto precisando de ajuda com [SERVICO]",
+    // Educada
+    "boa tarde, estava pesquisando e achei vocês, podem me ajudar com informações?",
+    "bom dia, vi vcs na internet, to precisando de ajuda com [SERVICO]",
     
     // Casual
-    "oi\nto precisando de [SERVICO]\nvcs fazem isso aí?",
-    "e aí\nqueria tirar umas dúvidas\nvcs trabalham com [PRODUTO]?"
+    "boa noite, to precisando de [SERVICO], vcs fazem isso aí?",
+    "e aí, queria tirar umas dúvidas, vcs trabalham com [PRODUTO]?"
   ],
 
   // ID-006: Linguagem Coloquial
@@ -111,11 +111,25 @@ export const SSP_CONFIG = {
 
   // ID-009: Situações Especiais
   SPECIAL_SITUATIONS: {
-    vendedor_demora: "oi\nainda tá aí?",
-    vendedor_grosseiro: "hmm entendi\nobrigado pela informação",
-    nao_sabe_responder: "sem problemas\ntem alguém que possa me ajudar com isso?",
-    pedir_ligar: "prefiro por aqui mesmo\nto no trabalho agora e não posso atender",
-    pressionar_muito: "calma, preciso pensar bem\né uma decisão importante pra mim"
+    vendedor_demora_20min: [
+      "oi, tudo bem?",
+      "opa, ainda tá aí?",
+      "e aí, consegue me ajudar?"
+    ],
+    vendedor_demora_4h: [
+      "oi, bom dia/tarde/noite, ainda tem como conversar?",
+      "olá, tudo bem? ainda pode me ajudar?",
+      "oi, conseguiu ver minha mensagem?"
+    ],
+    vendedor_demora_24h: [
+      "oi, tudo bem? ainda trabalha com isso?",
+      "olá, ainda atende por aqui?",
+      "oi, vejo que deve estar ocupado, quando puder me responde"
+    ],
+    vendedor_grosseiro: "hmm entendi, obrigado pela informação",
+    nao_sabe_responder: "sem problemas, tem alguém que possa me ajudar com isso?",
+    pedir_ligar: "prefiro por aqui mesmo, to no trabalho agora e não posso atender",
+    pressionar_muito: "calma, preciso pensar bem, é uma decisão importante pra mim"
   },
 
   // ID-007: Extensão por profundidade
@@ -139,6 +153,12 @@ export function validateMessage(message: string, context: any): { valid: boolean
     if (message.toLowerCase().includes(word)) {
       return { valid: false, reason: `Palavra proibida: ${word}` };
     }
+  }
+
+  // ✓ PROIBIÇÃO ABSOLUTA DE EMOJIS
+  const emojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
+  if (emojiRegex.test(message)) {
+    return { valid: false, reason: "Emojis detectados - PROIBIDO usar emojis" };
   }
 
   // ✓ Faz sentido no contexto?
