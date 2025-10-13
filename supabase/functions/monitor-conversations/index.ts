@@ -317,6 +317,12 @@ async function processConversation(
 
       console.log(`📦 [${analysis.id}] Reivindicadas ${claimedMessages.length} mensagens (runId=${runId})`);
 
+      // ⏰ AGUARDAR 1-10 MINUTOS ANTES DE RESPONDER (parecer humano/natural)
+      const randomDelayMs = Math.floor(Math.random() * (10 * 60 * 1000 - 1 * 60 * 1000) + 1 * 60 * 1000);
+      const delayMinutes = (randomDelayMs / 1000 / 60).toFixed(1);
+      console.log(`⏰ [${analysis.id}] Aguardando ${delayMinutes} minutos antes de responder (parecer natural)...`);
+      await new Promise(resolve => setTimeout(resolve, randomDelayMs));
+
       // Agrupar conteúdo das mensagens reivindicadas
       const groupedContent = claimedMessages.map((m: any) => m.content).join('\n');
 
