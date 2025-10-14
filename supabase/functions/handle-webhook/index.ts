@@ -98,7 +98,7 @@ serve(async (req) => {
     console.log(`Found active analysis: ${activeAnalysis.id}`);
 
     // Salvar mensagem do usuário com flag processed: false
-    await supabase.from('conversation_messages').insert({
+    const { error: insertError } = await supabase.from('conversation_messages').insert({
       analysis_id: activeAnalysis.id,
       role: 'user',
       content: messageText,
@@ -108,13 +108,28 @@ serve(async (req) => {
       }
     });
 
+    if (insertError) {
+      console.error('❌ Erro ao salvar mensagem:', insertError);
+      throw insertError;
+    }
+
+    console.log(`✅ Mensagem salva para análise ${activeAnalysis.id}:`, {
+      role: 'user',
+      content: messageText.substring(0, 50) + '...',
+      processed: false
+    });
+
     // Atualizar timestamp da última mensagem
-    await supabase
+    const { error: updateError } = await supabase
       .from('analysis_requests')
       .update({ last_message_at: new Date().toISOString() })
       .eq('id', activeAnalysis.id);
 
-    console.log(`💾 Mensagem salva com processed: false`);
+    if (updateError) {
+      console.error('❌ Erro ao atualizar last_message_at:', updateError);
+    } else {
+      console.log(`✅ last_message_at atualizado para ${activeAnalysis.id}`);
+    }
 
     // Monitor será invocado via gatilho do banco (trigger). Evitando chamadas duplicadas aqui.
 

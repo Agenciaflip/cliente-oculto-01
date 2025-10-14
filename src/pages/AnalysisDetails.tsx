@@ -136,7 +136,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           filter: `id=eq.${id}`
         },
         (payload) => {
-          console.log('Analysis updated:', payload);
+          console.log('🔥 REALTIME: Análise atualizada:', payload);
           if (mounted && payload.new) {
             const oldLastMessageAt = analysis && 'last_message_at' in analysis ? analysis.last_message_at : null;
             const newLastMessageAt = payload.new && 'last_message_at' in payload.new ? payload.new.last_message_at : null;
@@ -145,7 +145,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
             
             // Se last_message_at mudou, refetch mensagens
             if (oldLastMessageAt !== newLastMessageAt && newLastMessageAt !== null) {
-              console.log('last_message_at changed, refetching messages');
+              console.log('🔄 last_message_at mudou, buscando mensagens...');
               fetchMessages();
             }
           }
@@ -160,12 +160,16 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           filter: `analysis_id=eq.${id}`
         },
         (payload) => {
-          console.log('New message inserted:', payload);
+          console.log('🔥 REALTIME: Nova mensagem inserida:', payload);
           if (mounted && payload.new) {
             setMessages(prev => {
               // Evitar duplicatas
               const exists = prev.some(msg => msg.id === payload.new.id);
-              if (exists) return prev;
+              if (exists) {
+                console.log('⚠️ Mensagem duplicada ignorada:', payload.new.id);
+                return prev;
+              }
+              console.log('✅ Adicionando nova mensagem ao estado');
               const newMessages = [...prev, payload.new].sort((a, b) => 
                 new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
               );
@@ -187,9 +191,10 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           filter: `analysis_id=eq.${id}`
         },
         (payload) => {
-          console.log('Message updated:', payload);
+          console.log('🔥 REALTIME: Mensagem atualizada:', payload);
           if (mounted && payload.new) {
             setMessages(prev => {
+              console.log('✅ Atualizando mensagem no estado');
               return prev.map(msg => 
                 msg.id === payload.new.id ? payload.new : msg
               ).sort((a, b) => 
@@ -237,11 +242,12 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
     };
   }, [id, navigate]);
 
-  // Polling leve para garantir sincronização quando status === "chatting"
+  // Polling como fallback (aumentado para 10s)
   useEffect(() => {
     if (analysis?.status === "chatting") {
-      console.log("Starting polling for chatting status");
+      console.log("🔄 Iniciando polling fallback (10s)");
       pollingIntervalRef.current = setInterval(async () => {
+        console.log('🔄 Polling fallback executado');
         try {
           const { data: messagesData } = await supabase
             .from("conversation_messages")
@@ -253,7 +259,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
             setMessages(prev => {
               // Só atualizar se houver mudanças
               if (JSON.stringify(prev) !== JSON.stringify(messagesData)) {
-                console.log("Polling detected new messages");
+                console.log("⚠️ Polling detectou mudanças (Realtime falhou?)");
                 setTimeout(() => {
                   messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
                 }, 100);
@@ -263,12 +269,13 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
             });
           }
         } catch (error) {
-          console.error("Polling error:", error);
+          console.error("❌ Erro no polling:", error);
         }
-      }, 3000); // A cada 3 segundos
+      }, 10000); // Aumentado de 3s para 10s
     } else {
       // Limpar polling se status não for "chatting"
       if (pollingIntervalRef.current) {
+        console.log("🛑 Parando polling fallback");
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
