@@ -73,8 +73,6 @@ const NewAnalysis = () => {
     const cnpj = formData.get("cnpj") as string;
     const city = formData.get("city") as string;
     const businessSegment = formData.get("business_segment") as string;
-    const persona = formData.get("persona") as string;
-    const analysisDepth = formData.get("analysis_depth") as string;
     const competitorDescription = formData.get("competitor_description") as string;
     const competitorUrl = formData.get("competitor_url") as string;
     const investigationGoals = formData.get("investigation_goals") as string;
@@ -91,8 +89,8 @@ const NewAnalysis = () => {
           cnpj: cnpj || null,
           city: city,
           business_segment: businessSegment,
-          persona: persona as any,
-          analysis_depth: analysisDepth,
+          persona: 'ideal_client' as any,
+          analysis_depth: 'intermediate',
           competitor_description: competitorDescription,
           competitor_url: competitorUrl || null,
           investigation_goals: investigationGoals || null,
@@ -351,83 +349,6 @@ const NewAnalysis = () => {
                   <p className="text-xs text-muted-foreground">
                     Liste as informações específicas que deseja descobrir. A IA direcionará perguntas para capturar esses dados.
                   </p>
-                </div>
-
-
-                {/* Perfil do Cliente - ATUALIZADO */}
-                <div className="space-y-2">
-                  <Label htmlFor="persona">
-                    Perfil do Cliente <span className="text-destructive">*</span>
-                  </Label>
-                  <Select name="persona" defaultValue="ideal_client" disabled={isLoading}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ideal_client">
-                        <div className="flex flex-col gap-1 py-1">
-                          <div className="font-medium">Cliente Ideal</div>
-                          <div className="text-xs text-muted-foreground">
-                            Muito interessado e engajado - Para análise de concorrentes
-                          </div>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="curious_client">
-                        <div className="flex flex-col gap-1 py-1">
-                          <div className="font-medium">Cliente Curioso</div>
-                          <div className="text-xs text-muted-foreground">
-                            Indeciso, em fase de descoberta - Para cliente oculto próprio
-                          </div>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="difficult_client">
-                        <div className="flex flex-col gap-1 py-1">
-                          <div className="font-medium">Cliente Difícil</div>
-                          <div className="text-xs text-muted-foreground">
-                            Cético e questionador - Para testar contorno de objeções
-                          </div>
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Profundidade da Análise - ATUALIZADO */}
-                <div className="space-y-2">
-                  <Label htmlFor="analysis_depth">
-                    Profundidade da Análise <span className="text-destructive">*</span>
-                  </Label>
-                  <Select name="analysis_depth" defaultValue="quick" disabled={isLoading}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="quick">
-                        <div className="flex flex-col gap-1 py-1">
-                          <div className="font-medium">Análise Rápida</div>
-                          <div className="text-xs text-muted-foreground">
-                            3-5 perguntas, ~30 minutos - Validação rápida
-                          </div>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="intermediate">
-                        <div className="flex flex-col gap-1 py-1">
-                          <div className="font-medium">Análise Intermediária</div>
-                          <div className="text-xs text-muted-foreground">
-                            5-10 perguntas, 24 horas - Processo comercial completo
-                          </div>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="deep">
-                        <div className="flex flex-col gap-1 py-1">
-                          <div className="font-medium">Análise Profunda</div>
-                          <div className="text-xs text-muted-foreground">
-                            10-15 perguntas, 5 dias - Jornada completa + follow-ups
-                          </div>
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
 
                 {/* Botões de ação */}
