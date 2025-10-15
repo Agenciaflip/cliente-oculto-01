@@ -79,6 +79,11 @@ const NewAnalysis = () => {
     const aiGender = formData.get("ai_gender") as string;
 
     try {
+      // Determinar qual instância Evolution usar
+      const evolutionInstance = aiGender === 'female' 
+        ? 'clienteoculto-mulher' 
+        : 'felipedisparo';
+
       // Criar registro de análise no banco
       const { data: analysis, error: createError} = await supabase
         .from("analysis_requests")
@@ -95,6 +100,7 @@ const NewAnalysis = () => {
           competitor_url: competitorUrl || null,
           investigation_goals: investigationGoals || null,
           ai_gender: aiGender,
+          evolution_instance: evolutionInstance, // 🔥 CAMPO CRÍTICO
           status: "pending" as any,
           processing_stage: "awaiting_research",
         }])

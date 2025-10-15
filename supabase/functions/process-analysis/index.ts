@@ -668,13 +668,16 @@ CRITICAL:
       throw new Error(`Evolution API error: Nenhuma variação do número funcionou. Última tentativa: ${lastErr}`);
     }
 
-    // ATUALIZAR target_phone com o número que funcionou
+    // ATUALIZAR target_phone e evolution_instance com o número e instância que funcionaram
     await supabase
       .from('analysis_requests')
-      .update({ target_phone: usedNumber })
+      .update({ 
+        target_phone: usedNumber,
+        evolution_instance: actualEvolutionInstance // 🔥 Garantir instância correta
+      })
       .eq('id', pendingAnalysis.id);
     
-    console.log(`💾 Número atualizado no banco: ${usedNumber}`);
+    console.log(`💾 Número e instância atualizados no banco: ${usedNumber} (${actualEvolutionInstance})`);
     // Salvar mensagem inicial
     await supabase.from('conversation_messages').insert({
       analysis_id: pendingAnalysis.id,

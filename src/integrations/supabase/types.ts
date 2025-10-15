@@ -55,6 +55,7 @@ export type Database = {
           competitor_url: string | null
           completed_at: string | null
           created_at: string
+          evolution_instance: string
           first_reactivation_sent: boolean | null
           first_reactivation_sent_at: string | null
           id: string
@@ -85,6 +86,7 @@ export type Database = {
           competitor_url?: string | null
           completed_at?: string | null
           created_at?: string
+          evolution_instance: string
           first_reactivation_sent?: boolean | null
           first_reactivation_sent_at?: string | null
           id?: string
@@ -115,6 +117,7 @@ export type Database = {
           competitor_url?: string | null
           completed_at?: string | null
           created_at?: string
+          evolution_instance?: string
           first_reactivation_sent?: boolean | null
           first_reactivation_sent_at?: string | null
           id?: string

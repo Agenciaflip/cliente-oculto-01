@@ -33,6 +33,9 @@ serve(async (req) => {
       );
     }
 
+    // Identificar instância do webhook
+    const webhookInstance = payload.instance;
+
     // Extrair dados da mensagem
     const messageData = payload.data;
     const fromMe = messageData.key?.fromMe;
@@ -64,38 +67,58 @@ serve(async (req) => {
       );
     }
 
-    console.log(`✅ Mensagem válida recebida de ${phoneNumber}: ${messageText}`);
+    console.log(`🔍 Webhook recebido:`, {
+      instance: webhookInstance,
+      phone: phoneNumber,
+      messagePreview: messageText.substring(0, 30)
+    });
 
-    // Criar variações do número para buscar análise ativa
+    // Criar variações ROBUSTAS do número (adiciona E remove o 9)
     const phoneVariations = [
-      phoneNumber,                           // Ex: 556283071325
-      `55629${phoneNumber.slice(4)}`,       // Ex: 5562983071325 (adiciona 9)
-      phoneNumber.slice(2),                  // Ex: 6283071325 (remove 55)
-      `629${phoneNumber.slice(4)}`          // Ex: 62983071325 (remove 55 + adiciona 9)
-    ];
+      phoneNumber,                                    // Original: 556283071325
+      `55629${phoneNumber.slice(4)}`,                // Adiciona 9: 5562983071325
+      phoneNumber.replace(/^(55\d{2})9(\d{8})$/, '$1$2'), // Remove 9 se tiver: 556283071325
+      phoneNumber.slice(2),                          // Remove DDI: 6283071325
+      `629${phoneNumber.slice(4)}`,                  // Remove DDI + adiciona 9: 62983071325
+      phoneNumber.slice(2).replace(/^(\d{2})9(\d{8})$/, '$1$2') // Remove DDI e 9: 6283071325
+    ].filter((v, i, arr) => arr.indexOf(v) === i); // Remove duplicatas
     
-    console.log(`🔍 Buscando análise para variações: ${phoneVariations.join(', ')}`);
+    console.log(`🔎 Buscando análise para:`, {
+      instance: webhookInstance,
+      phoneVariations: phoneVariations
+    });
 
-    // Buscar análise ativa com múltiplas variações do número
+    // Buscar análise ativa filtrando por instância E telefone
     const { data: activeAnalyses } = await supabase
       .from('analysis_requests')
       .select('*')
       .eq('status', 'chatting')
+      .eq('evolution_instance', webhookInstance) // 🔥 FILTRO CRÍTICO
       .or(phoneVariations.map(v => `target_phone.like.%${v}%`).join(','));
     
     const activeAnalysis = activeAnalyses?.[0];
 
     if (!activeAnalysis) {
-      console.log(`❌ Nenhuma análise ativa encontrada para: ${phoneVariations.join(', ')}`);
+      console.log(`❌ Nenhuma análise ativa encontrada para instância ${webhookInstance} com telefone ${phoneNumber}`);
+      console.log(`📊 Variações testadas: ${phoneVariations.join(', ')}`);
       return new Response(
         JSON.stringify({ message: 'No active analysis' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     
-    console.log(`✅ Análise encontrada: ${activeAnalysis.id} (target_phone: ${activeAnalysis.target_phone})`);
+    console.log(`✅ Análise encontrada:`, {
+      id: activeAnalysis.id,
+      ai_gender: activeAnalysis.ai_gender,
+      evolution_instance: activeAnalysis.evolution_instance,
+      target_phone: activeAnalysis.target_phone
+    });
 
-    console.log(`Found active analysis: ${activeAnalysis.id}`);
+    // Validação de consistência
+    if (activeAnalysis.ai_gender === 'female' && 
+        activeAnalysis.evolution_instance !== 'clienteoculto-mulher') {
+      console.error(`⚠️ INCONSISTÊNCIA: Análise ${activeAnalysis.id} tem ai_gender=female mas evolution_instance=${activeAnalysis.evolution_instance}`);
+    }
 
     // Salvar mensagem do usuário com flag processed: false
     const { error: insertError } = await supabase.from('conversation_messages').insert({
