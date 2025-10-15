@@ -20,21 +20,25 @@ serve(async (req) => {
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL');
     const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
     const evolutionInstance = Deno.env.get('EVOLUTION_INSTANCE_NAME');
+    const evolutionInstanceFemale = Deno.env.get('EVOLUTION_INSTANCE_NAME_FEMALE');
 
     const payload = await req.json();
     console.log('Received webhook:', JSON.stringify(payload, null, 2));
 
-    // Validar que é do nosso instance
-    if (payload.instance !== evolutionInstance) {
-      console.log('Webhook from different instance, ignoring');
+    // Identificar instância do webhook
+    const webhookInstance = payload.instance;
+
+    // Validar que é de uma das nossas instâncias (masculina OU feminina)
+    const validInstances = [evolutionInstance, evolutionInstanceFemale].filter(Boolean);
+    if (!validInstances.includes(webhookInstance)) {
+      console.log(`Webhook from different instance (${webhookInstance}), ignoring. Valid: ${validInstances.join(', ')}`);
       return new Response(
         JSON.stringify({ message: 'Ignored' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Identificar instância do webhook
-    const webhookInstance = payload.instance;
+    console.log(`✅ Webhook aceito da instância: ${webhookInstance}`);
 
     // Extrair dados da mensagem
     const messageData = payload.data;
