@@ -8,9 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles, CalendarIcon } from "lucide-react";
+import { format, addDays } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { cn } from "@/lib/utils";
 
 const NewAnalysis = () => {
   const navigate = useNavigate();
@@ -18,6 +23,9 @@ const NewAnalysis = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [credits, setCredits] = useState(0);
+  const [scheduledDate, setScheduledDate] = useState<Date>();
+  const [scheduledTime, setScheduledTime] = useState<string>("14:00");
+  const [isScheduled, setIsScheduled] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -79,6 +87,27 @@ const NewAnalysis = () => {
     const aiGender = formData.get("ai_gender") as string;
 
     try {
+      // Validar agendamento se habilitado
+      let scheduledStartAt = null;
+      if (isScheduled && scheduledDate) {
+        const [hours, minutes] = scheduledTime.split(':');
+        const scheduled = new Date(scheduledDate);
+        scheduled.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        
+        // Validar que está no futuro
+        if (scheduled <= new Date()) {
+          toast({
+            title: "Erro de agendamento",
+            description: "A data/hora deve estar no futuro",
+            variant: "destructive"
+          });
+          setIsLoading(false);
+          return;
+        }
+        
+        scheduledStartAt = scheduled.toISOString();
+      }
+
       // Determinar qual instância Evolution usar
       const evolutionInstance = aiGender === 'female' 
         ? 'clienteoculto-mulher' 
@@ -100,9 +129,11 @@ const NewAnalysis = () => {
           competitor_url: competitorUrl || null,
           investigation_goals: investigationGoals || null,
           ai_gender: aiGender,
-          evolution_instance: evolutionInstance, // 🔥 CAMPO CRÍTICO
+          evolution_instance: evolutionInstance,
           status: "pending" as any,
           processing_stage: "awaiting_research",
+          scheduled_start_at: scheduledStartAt,
+          timeout_minutes: 120, // 2 horas
         }])
         .select()
         .single();
@@ -299,6 +330,65 @@ const NewAnalysis = () => {
                   <p className="text-xs text-muted-foreground">
                     Escolha qual persona vai interagir com a empresa
                   </p>
+                </div>
+
+                {/* Agendamento */}
+                <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="schedule"
+                      checked={isScheduled}
+                      onCheckedChange={(checked) => setIsScheduled(checked as boolean)}
+                      disabled={isLoading}
+                    />
+                    <Label htmlFor="schedule" className="cursor-pointer">
+                      🕐 Agendar início da análise
+                    </Label>
+                  </div>
+
+                  {isScheduled && (
+                    <div className="grid grid-cols-2 gap-4 pt-2">
+                      {/* Date Picker */}
+                      <div className="space-y-2">
+                        <Label>Data de Início</Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button 
+                              variant="outline" 
+                              className={cn(
+                                "w-full justify-start text-left font-normal",
+                                !scheduledDate && "text-muted-foreground"
+                              )}
+                              disabled={isLoading}
+                            >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {scheduledDate ? format(scheduledDate, "PPP", { locale: ptBR }) : "Selecionar data"}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={scheduledDate}
+                              onSelect={setScheduledDate}
+                              disabled={(date) => date < new Date() || date > addDays(new Date(), 30)}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+
+                      {/* Time Picker */}
+                      <div className="space-y-2">
+                        <Label>Horário</Label>
+                        <Input
+                          type="time"
+                          value={scheduledTime}
+                          onChange={(e) => setScheduledTime(e.target.value)}
+                          disabled={isLoading}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* NOVOS CAMPOS */}

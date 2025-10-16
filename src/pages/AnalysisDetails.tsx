@@ -5,10 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles, Printer } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles, Printer, CalendarIcon } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
+import { AnalysisTimer } from "@/components/AnalysisTimer";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface AnalysisDetailsProps {
   isAdminView?: boolean;
@@ -549,6 +552,31 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           </Alert>
         )}
         
+        {/* Alerta de Agendamento */}
+        {analysis.status === 'pending' && analysis.scheduled_start_at && (
+          <Alert className="mb-6 border-primary/50 bg-primary/5">
+            <CalendarIcon className="h-4 w-4 text-primary" />
+            <AlertTitle className="text-primary">Análise Agendada</AlertTitle>
+            <AlertDescription>
+              Esta análise iniciará automaticamente em{' '}
+              <strong className="text-foreground">
+                {format(new Date(analysis.scheduled_start_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+              </strong>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Cronômetro da Análise */}
+        {analysis.status === 'chatting' && analysis.started_at && (
+          <div className="mb-6">
+            <AnalysisTimer
+              startedAt={analysis.started_at}
+              timeoutMinutes={analysis.timeout_minutes || 120}
+              status={analysis.status}
+            />
+          </div>
+        )}
+
         {/* 🎯 NOVO: Card de Progresso Visual */}
         {(analysis.status === 'pending' || analysis.status === 'processing' || analysis.status === 'chatting') && (
           <Card className="mb-6 shadow-medium border-primary/20">

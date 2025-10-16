@@ -69,6 +69,7 @@ export type Database = {
           questions_strategy: Json | null
           research_data: Json | null
           retry_count: number | null
+          scheduled_start_at: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["analysis_status"]
           target_phone: string
@@ -100,6 +101,7 @@ export type Database = {
           questions_strategy?: Json | null
           research_data?: Json | null
           retry_count?: number | null
+          scheduled_start_at?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
           target_phone: string
@@ -131,6 +133,7 @@ export type Database = {
           questions_strategy?: Json | null
           research_data?: Json | null
           retry_count?: number | null
+          scheduled_start_at?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
           target_phone?: string

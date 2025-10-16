@@ -57,12 +57,14 @@ serve(async (req) => {
 
     // PROCESSAMENTO PARALELO: pegar até 5 análises pendentes
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const now = new Date().toISOString();
     
     const { data: pendingAnalyses } = await supabase
       .from('analysis_requests')
       .select('*')
       .eq('status', 'pending')
       .or(`processing_started_at.is.null,processing_started_at.lt.${twoMinutesAgo}`)
+      .or(`scheduled_start_at.is.null,scheduled_start_at.lte.${now}`)
       .order('created_at', { ascending: true })
       .limit(5);
 
