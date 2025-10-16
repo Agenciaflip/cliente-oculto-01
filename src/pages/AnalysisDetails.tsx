@@ -677,6 +677,14 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                   <p className="text-sm text-muted-foreground">Profundidade</p>
                   <p className="font-medium capitalize">{analysis.analysis_depth}</p>
                 </div>
+                {analysis.scheduled_start_at && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Horário Programado</p>
+                    <p className="font-medium">
+                      {format(new Date(analysis.scheduled_start_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <p className="text-sm text-muted-foreground">Criada em</p>
                   <p className="font-medium">

@@ -370,8 +370,14 @@ const NewAnalysis = () => {
                               mode="single"
                               selected={scheduledDate}
                               onSelect={setScheduledDate}
-                              disabled={(date) => date < new Date() || date > addDays(new Date(), 30)}
+                              disabled={(date) => {
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                const maxDate = addDays(new Date(), 30);
+                                return date < today || date > maxDate;
+                              }}
                               initialFocus
+                              className="pointer-events-auto"
                             />
                           </PopoverContent>
                         </Popover>
@@ -385,7 +391,18 @@ const NewAnalysis = () => {
                           value={scheduledTime}
                           onChange={(e) => setScheduledTime(e.target.value)}
                           disabled={isLoading}
+                          min={
+                            scheduledDate && 
+                            scheduledDate.toDateString() === new Date().toDateString()
+                              ? new Date().toTimeString().slice(0, 5)
+                              : undefined
+                          }
                         />
+                        {scheduledDate && scheduledDate.toDateString() === new Date().toDateString() && (
+                          <p className="text-xs text-muted-foreground">
+                            Horários disponíveis a partir de {new Date().toTimeString().slice(0, 5)}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
