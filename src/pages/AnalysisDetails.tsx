@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles, Printer, CalendarIcon } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles, Printer, CalendarIcon, StopCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
@@ -13,6 +13,17 @@ import { AnalysisTimer } from "@/components/AnalysisTimer";
 import { NextResponseTimer } from "@/components/NextResponseTimer";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface AnalysisDetailsProps {
   isAdminView?: boolean;
@@ -345,6 +356,33 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
     }
   };
 
+  const handleStopAnalysis = async () => {
+    try {
+      const { error } = await supabase
+        .from('analysis_requests')
+        .update({ 
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Análise encerrada",
+        description: "A análise foi finalizada com sucesso.",
+      });
+
+      setAnalysis({ ...analysis, status: 'completed', completed_at: new Date().toISOString() });
+    } catch (error) {
+      console.error('Erro ao encerrar análise:', error);
+      toast({
+        title: "Erro ao encerrar análise",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Componente de Etapa Individual
   const ProcessingStage = ({ 
     icon, 
@@ -484,6 +522,31 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                 <Badge variant="outline" className="text-green-600 border-green-600">
                   🟢 Ao vivo
                 </Badge>
+              )}
+              {analysis.status === 'chatting' && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" className="gap-2">
+                      <StopCircle className="h-4 w-4" />
+                      Encerrar Análise
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Encerrar análise?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Isso irá finalizar a conversa com o cliente oculto imediatamente. 
+                        A análise será marcada como concluída e você poderá visualizar os resultados.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleStopAnalysis}>
+                        Encerrar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
               {analysis.status === 'completed' && (
                 <Button
