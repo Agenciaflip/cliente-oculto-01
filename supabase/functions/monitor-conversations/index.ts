@@ -327,10 +327,24 @@ async function processConversation(
 
       console.log(`📦 [${analysis.id}] Reivindicadas ${claimedMessages.length} mensagens (runId=${runId})`);
 
-      // ⏰ AGUARDAR 1-10 MINUTOS ANTES DE RESPONDER (parecer humano/natural)
-      const randomDelayMs = Math.floor(Math.random() * (10 * 60 * 1000 - 1 * 60 * 1000) + 1 * 60 * 1000);
-      const delayMinutes = (randomDelayMs / 1000 / 60).toFixed(1);
-      console.log(`⏰ [${analysis.id}] Aguardando ${delayMinutes} minutos antes de responder (parecer natural)...`);
+      // ⏰ AGUARDAR 30 SEGUNDOS A 3 MINUTOS ANTES DE RESPONDER (parecer humano/natural)
+      const randomDelayMs = Math.floor(Math.random() * (3 * 60 * 1000 - 30 * 1000) + 30 * 1000);
+      const delaySeconds = (randomDelayMs / 1000).toFixed(0);
+      const nextResponseAt = new Date(Date.now() + randomDelayMs).toISOString();
+      
+      console.log(`⏰ [${analysis.id}] Aguardando ${delaySeconds} segundos antes de responder (parecer natural)...`);
+      
+      // Salvar horário estimado de resposta
+      await supabase
+        .from('conversation_messages')
+        .update({ 
+          metadata: { 
+            ...claimedMessages[0].metadata, 
+            next_ai_response_at: nextResponseAt 
+          } 
+        })
+        .eq('id', claimedMessages[0].id);
+      
       await new Promise(resolve => setTimeout(resolve, randomDelayMs));
 
       // Agrupar conteúdo das mensagens reivindicadas

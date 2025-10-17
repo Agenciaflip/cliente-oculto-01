@@ -10,6 +10,7 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
 import { AnalysisTimer } from "@/components/AnalysisTimer";
+import { NextResponseTimer } from "@/components/NextResponseTimer";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -762,6 +763,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                   </div>
                 ) : (
                   <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                    <NextResponseTimer messages={messages} />
                     {messages.map((msg) => (
                       <div
                         key={msg.id}
