@@ -286,15 +286,25 @@ async function processConversation(
     const timeSinceLastMessage = Date.now() - new Date(analysis.last_message_at).getTime();
 
     // CENÁRIO A: Mensagens não processadas (PRIORIDADE)
-    const unprocessedMessages = messages.filter((m: any) => 
-      m.role === 'user' && m.metadata?.processed === false
-    );
+    // Incluir mensagens claimed há mais de 2 minutos (timeout de claim)
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    
+    const { data: unprocessedMessages } = await supabase
+      .from('conversation_messages')
+      .select('*')
+      .eq('analysis_id', analysis.id)
+      .eq('role', 'user')
+      .eq('metadata->>processed', 'false')
+      .or(`metadata->>claimed_at.is.null,metadata->>claimed_at.lt.${twoMinutesAgo}`)
+      .order('created_at', { ascending: true });
 
-    if (unprocessedMessages.length > 0) {
+    const unprocessedList = unprocessedMessages || [];
+
+    if (unprocessedList.length > 0) {
       // Atomic claim to avoid duplicate processing
       const runId = crypto.randomUUID();
       const claimedMessages: any[] = [];
-      for (const msg of unprocessedMessages) {
+      for (const msg of unprocessedList) {
         const newMeta = { ...(msg.metadata || {}), claimed_by: runId, claimed_at: new Date().toISOString() };
         const { data: updated, error } = await supabase
           .from('conversation_messages')

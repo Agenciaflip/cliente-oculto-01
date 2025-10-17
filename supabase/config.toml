@@ -12,6 +12,9 @@ verify_jwt = false
 [functions.monitor-conversations]
 verify_jwt = false
 
+[functions.process-orphan-messages]
+verify_jwt = false
+
 [functions.admin-reset-users]
 verify_jwt = false
 

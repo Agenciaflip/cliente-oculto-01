@@ -23,7 +23,7 @@ serve(async (req) => {
     const evolutionInstanceFemale = Deno.env.get('EVOLUTION_INSTANCE_NAME_FEMALE');
 
     const payload = await req.json();
-    console.log('Received webhook:', JSON.stringify(payload, null, 2));
+    console.log('📥 Webhook recebido:', JSON.stringify(payload, null, 2));
 
     // Identificar instância do webhook
     const webhookInstance = payload.instance;
@@ -71,10 +71,12 @@ serve(async (req) => {
       );
     }
 
-    console.log(`🔍 Webhook recebido:`, {
+    console.log(`🔍 Webhook processado:`, {
+      event: payload.event,
       instance: webhookInstance,
       phone: phoneNumber,
-      messagePreview: messageText.substring(0, 30)
+      messagePreview: messageText.substring(0, 50),
+      fromMe: fromMe
     });
 
     // Criar variações ROBUSTAS do número (adiciona E remove o 9)
@@ -140,10 +142,11 @@ serve(async (req) => {
       throw insertError;
     }
 
-    console.log(`✅ Mensagem salva para análise ${activeAnalysis.id}:`, {
+    console.log(`💾 Mensagem salva para análise ${activeAnalysis.id}:`, {
       role: 'user',
       content: messageText.substring(0, 50) + '...',
-      processed: false
+      processed: false,
+      timestamp: new Date().toISOString()
     });
 
     // Atualizar timestamp da última mensagem
@@ -157,6 +160,8 @@ serve(async (req) => {
     } else {
       console.log(`✅ last_message_at atualizado para ${activeAnalysis.id}`);
     }
+
+    console.log(`🚀 Trigger do banco disparará monitor-conversations automaticamente`);
 
     // Monitor será invocado via gatilho do banco (trigger). Evitando chamadas duplicadas aqui.
 
