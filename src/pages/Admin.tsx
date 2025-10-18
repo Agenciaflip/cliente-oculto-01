@@ -20,6 +20,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
+import { SystemHealthMonitor } from "@/components/SystemHealthMonitor";
 
 // Interfaces e tipos
 interface DataTableSearchableColumn<TData> {
@@ -740,6 +741,9 @@ const Admin = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Monitor de Sistema */}
+        <SystemHealthMonitor />
 
         {/* Tabs */}
         <Tabs defaultValue="users" className="w-full">

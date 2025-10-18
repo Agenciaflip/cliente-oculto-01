@@ -30,15 +30,17 @@ serve(async (req) => {
 
     // Validar que é de uma das nossas instâncias (masculina OU feminina)
     const validInstances = [evolutionInstance, evolutionInstanceFemale].filter(Boolean);
-    if (!validInstances.includes(webhookInstance)) {
-      console.log(`Webhook from different instance (${webhookInstance}), ignoring. Valid: ${validInstances.join(', ')}`);
-      return new Response(
-        JSON.stringify({ message: 'Ignored' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    let instanceValidated = validInstances.includes(webhookInstance);
+    let isFallback = false;
+    
+    if (!instanceValidated) {
+      console.log(`⚠️ Webhook de instância inesperada (${webhookInstance}), tentando fallback...`);
+      isFallback = true;
     }
 
-    console.log(`✅ Webhook aceito da instância: ${webhookInstance}`);
+    if (!isFallback) {
+      console.log(`✅ Webhook aceito da instância: ${webhookInstance}`);
+    }
 
     // Extrair dados da mensagem
     const messageData = payload.data;
@@ -91,26 +93,36 @@ serve(async (req) => {
     
     console.log(`🔎 Buscando análise para:`, {
       instance: webhookInstance,
-      phoneVariations: phoneVariations
+      phoneVariations: phoneVariations,
+      isFallback: isFallback
     });
 
-    // Buscar análise ativa filtrando por instância E telefone
-    const { data: activeAnalyses } = await supabase
+    // Buscar análise ativa - se instância válida, filtrar por ela; senão buscar por telefone apenas
+    let activeAnalysesQuery = supabase
       .from('analysis_requests')
       .select('*')
-      .eq('status', 'chatting')
-      .eq('evolution_instance', webhookInstance) // 🔥 FILTRO CRÍTICO
-      .or(phoneVariations.map(v => `target_phone.like.%${v}%`).join(','));
+      .eq('status', 'chatting');
     
+    if (!isFallback) {
+      activeAnalysesQuery = activeAnalysesQuery.eq('evolution_instance', webhookInstance);
+    }
+    
+    activeAnalysesQuery = activeAnalysesQuery.or(phoneVariations.map(v => `target_phone.like.%${v}%`).join(','));
+    
+    const { data: activeAnalyses } = await activeAnalysesQuery;
     const activeAnalysis = activeAnalyses?.[0];
 
     if (!activeAnalysis) {
-      console.log(`❌ Nenhuma análise ativa encontrada para instância ${webhookInstance} com telefone ${phoneNumber}`);
+      console.log(`❌ Nenhuma análise ativa encontrada para ${isFallback ? 'telefone' : `instância ${webhookInstance} e telefone`} ${phoneNumber}`);
       console.log(`📊 Variações testadas: ${phoneVariations.join(', ')}`);
       return new Response(
         JSON.stringify({ message: 'No active analysis' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+    
+    if (isFallback) {
+      console.log(`⚠️ FALLBACK: Mensagem aceita de instância ${webhookInstance} para análise ${activeAnalysis.id} (esperava: ${activeAnalysis.evolution_instance})`);
     }
     
     console.log(`✅ Análise encontrada:`, {

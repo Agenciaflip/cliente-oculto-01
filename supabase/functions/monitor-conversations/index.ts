@@ -262,8 +262,10 @@ async function processConversation(
   evolutionKeyFemale: string,
   evolutionInstanceFemale: string
 ) {
-  // Selecionar credenciais baseadas no ai_gender
-  const evoCredentials = getEvolutionCredentials(analysis.ai_gender || 'male');
+  // Selecionar credenciais - usar evolution_instance se disponível, senão usar ai_gender
+  const instanceToUse = analysis.evolution_instance || analysis.ai_gender || 'male';
+  console.log(`📡 Usando instância: ${instanceToUse} (evolution_instance: ${analysis.evolution_instance}, ai_gender: ${analysis.ai_gender})`);
+  const evoCredentials = getEvolutionCredentials(instanceToUse);
   const actualEvolutionUrl = evoCredentials.url!;
   const actualEvolutionKey = evoCredentials.key!;
   const actualEvolutionInstance = evoCredentials.instance!;
@@ -333,11 +335,12 @@ async function processConversation(
       const nextResponseAt = new Date(Date.now() + randomDelayMs).toISOString();
       
       console.log(`⏰ [${analysis.id}] Aguardando ${delaySeconds} segundos antes de responder (parecer natural)...`);
+      console.log(`⏰ Próxima resposta agendada para: ${nextResponseAt} (delay: ${randomDelayMs}ms)`);
       
       // Salvar horário estimado de resposta
       await supabase
         .from('conversation_messages')
-        .update({ 
+        .update({
           metadata: { 
             ...claimedMessages[0].metadata, 
             next_ai_response_at: nextResponseAt 

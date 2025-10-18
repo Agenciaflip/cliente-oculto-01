@@ -18,8 +18,9 @@ serve(async (req) => {
 
     console.log('🔍 Buscando mensagens órfãs...');
 
-    // Buscar mensagens de usuário não processadas há mais de 30 segundos
+    // Buscar mensagens órfãs: não processadas OU claimed há mais de 2 minutos
     const thirtySecondsAgo = new Date(Date.now() - 30000).toISOString();
+    const twoMinutesAgo = new Date(Date.now() - 120000).toISOString();
 
     const { data: orphanMessages } = await supabase
       .from('conversation_messages')
@@ -30,7 +31,7 @@ serve(async (req) => {
       .eq('role', 'user')
       .eq('metadata->>processed', 'false')
       .eq('analysis_requests.status', 'chatting')
-      .lt('created_at', thirtySecondsAgo)
+      .or(`created_at.lt.${thirtySecondsAgo},metadata->>claimed_at.lt.${twoMinutesAgo}`)
       .order('created_at', { ascending: true })
       .limit(10);
 
