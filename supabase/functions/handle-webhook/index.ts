@@ -123,6 +123,29 @@ serve(async (req) => {
     
     if (isFallback) {
       console.log(`⚠️ FALLBACK: Mensagem aceita de instância ${webhookInstance} para análise ${activeAnalysis.id} (esperava: ${activeAnalysis.evolution_instance})`);
+      
+      // CRÍTICO: Se aceitou via fallback e a instância mudou, atualizar e logar
+      if (activeAnalysis.evolution_instance !== webhookInstance) {
+        console.error(`🔴 TROCA DE INSTÂNCIA DETECTADA: analysis ${activeAnalysis.id} estava usando ${activeAnalysis.evolution_instance}, agora usando ${webhookInstance}`);
+        
+        const updatedMetadata = {
+          ...(activeAnalysis.metadata || {}),
+          instance_changed: true,
+          original_instance: activeAnalysis.evolution_instance,
+          new_instance: webhookInstance,
+          changed_at: new Date().toISOString()
+        };
+        
+        await supabase
+          .from('analysis_requests')
+          .update({
+            evolution_instance: webhookInstance,
+            metadata: updatedMetadata
+          })
+          .eq('id', activeAnalysis.id);
+        
+        console.log(`✅ Instância atualizada no DB: ${activeAnalysis.evolution_instance} → ${webhookInstance}`);
+      }
     }
     
     console.log(`✅ Análise encontrada:`, {

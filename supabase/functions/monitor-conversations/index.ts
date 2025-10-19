@@ -255,14 +255,14 @@ async function processConversation(
   analysis: any,
   supabase: any,
   openAIKey: string,
-  evolutionUrl: string,
-  evolutionKey: string,
-  evolutionInstance: string,
+  evolutionUrlParam: string,
+  evolutionKeyParam: string,
+  evolutionInstanceParam: string,
   evolutionUrlFemale: string,
   evolutionKeyFemale: string,
   evolutionInstanceFemale: string
 ) {
-  // Selecionar credenciais - usar evolution_instance se disponível, senão usar ai_gender
+  // Selecionar credenciais - PRIORIZAR evolution_instance do DB
   const instanceToUse = analysis.evolution_instance || analysis.ai_gender || 'male';
   console.log(`📡 Usando instância: ${instanceToUse} (evolution_instance: ${analysis.evolution_instance}, ai_gender: ${analysis.ai_gender})`);
   const evoCredentials = getEvolutionCredentials(instanceToUse);
@@ -270,7 +270,29 @@ async function processConversation(
   const actualEvolutionKey = evoCredentials.key!;
   const actualEvolutionInstance = evoCredentials.instance!;
   
-  console.log(`🔧 [${analysis.id}] Usando Evolution ${analysis.ai_gender === 'female' ? 'FEMININA (clienteoculto-mulher)' : 'MASCULINA (felipedisparo)'}`);
+  console.log(`🔧 [${analysis.id}] Usando Evolution ${actualEvolutionInstance}`);
+  
+  // STRICT MODE: Validar que a instância no DB bate com a que estamos usando
+  if (analysis.evolution_instance && analysis.evolution_instance !== actualEvolutionInstance) {
+    console.error(`❌ MISMATCH CRÍTICO: analysis ${analysis.id} esperava ${analysis.evolution_instance} mas está tentando usar ${actualEvolutionInstance}`);
+    
+    await supabase
+      .from('analysis_requests')
+      .update({ 
+        status: 'failed',
+        metadata: {
+          ...(analysis.metadata || {}),
+          error: 'Instance mismatch detected',
+          expected_instance: analysis.evolution_instance,
+          actual_instance: actualEvolutionInstance,
+          error_timestamp: new Date().toISOString()
+        }
+      })
+      .eq('id', analysis.id);
+    
+    console.log(`🛑 Análise ${analysis.id} pausada por mismatch de instância`);
+    return;
+  }
 
   try {
     // Buscar todas mensagens da conversa

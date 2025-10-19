@@ -11,6 +11,8 @@ interface HealthMetrics {
   monitorActive: boolean;
   lastActivity: Date | null;
   unprocessedMessages: number;
+  instanceChanges: number;
+  erroredAnalyses: number;
 }
 
 export function SystemHealthMonitor() {
@@ -19,6 +21,8 @@ export function SystemHealthMonitor() {
     monitorActive: false,
     lastActivity: null,
     unprocessedMessages: 0,
+    instanceChanges: 0,
+    erroredAnalyses: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -55,11 +59,27 @@ export function SystemHealthMonitor() {
 
         const monitorActive = (oldCount || 0) === 0;
 
+        // Buscar análises com mudança de instância
+        const { count: instanceChangesCount } = await supabase
+          .from('analysis_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('metadata->>instance_changed', 'true')
+          .eq('status', 'chatting');
+
+        // Buscar análises em erro por mismatch
+        const { count: erroredCount } = await supabase
+          .from('analysis_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'failed')
+          .like('metadata->>error', '%mismatch%');
+
         setMetrics({
           webhookActive: webhookActive || false,
           monitorActive,
           lastActivity: lastMessage ? new Date(lastMessage.created_at) : null,
           unprocessedMessages: count || 0,
+          instanceChanges: instanceChangesCount || 0,
+          erroredAnalyses: erroredCount || 0,
         });
       } catch (error) {
         console.error('Error fetching health metrics:', error);
@@ -147,6 +167,24 @@ export function SystemHealthMonitor() {
             </Badge>
           )}
         </div>
+
+        {/* Instance Changes */}
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Trocas de Instância</span>
+          <Badge variant={metrics.instanceChanges > 0 ? "destructive" : "secondary"}>
+            {metrics.instanceChanges}
+          </Badge>
+        </div>
+
+        {/* Errored Analyses */}
+        {metrics.erroredAnalyses > 0 && (
+          <div className="flex items-center justify-between p-2 bg-destructive/10 rounded-md border border-destructive">
+            <span className="text-sm font-medium text-destructive">⚠️ Análises com Erro</span>
+            <Badge variant="destructive">
+              {metrics.erroredAnalyses}
+            </Badge>
+          </div>
+        )}
       </div>
     </Card>
   );

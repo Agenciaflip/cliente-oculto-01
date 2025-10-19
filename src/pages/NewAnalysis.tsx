@@ -108,10 +108,25 @@ const NewAnalysis = () => {
         scheduledStartAt = scheduled.toISOString();
       }
 
-      // Determinar qual instância Evolution usar
-      const evolutionInstance = aiGender === 'female' 
-        ? 'clienteoculto-mulher' 
-        : 'felipedisparo';
+      // Determinar qual instância Evolution usar - STRICT
+      let evolutionInstance: string;
+      if (aiGender === 'female') {
+        evolutionInstance = 'clienteoculto-mulher';
+        console.log('🎭 Usando instância FEMININA: clienteoculto-mulher');
+      } else {
+        evolutionInstance = 'clienteoculto-homem';
+        console.log('🎭 Usando instância MASCULINA: clienteoculto-homem');
+      }
+      
+      // NUNCA permitir instância vazia
+      if (!evolutionInstance) {
+        toast({
+          variant: "destructive",
+          title: "Erro na configuração",
+          description: "Erro na configuração da instância Evolution"
+        });
+        return;
+      }
 
       // Criar registro de análise no banco
       const { data: analysis, error: createError} = await supabase
