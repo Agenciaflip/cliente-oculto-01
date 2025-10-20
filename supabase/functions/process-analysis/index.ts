@@ -240,7 +240,7 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'llama-3.1-sonar-large-128k-online',
+          model: 'sonar',
           messages: [
             {
               role: 'system',

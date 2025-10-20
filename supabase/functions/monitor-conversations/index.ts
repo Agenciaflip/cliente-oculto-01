@@ -121,8 +121,13 @@ serve(async (req) => {
 });
 
 // ============= FUNÇÃO AUXILIAR: SELECIONAR EVOLUTION CREDENTIALS =============
-function getEvolutionCredentials(aiGender: string) {
-  if (aiGender === 'female') {
+function getEvolutionCredentials(instanceIdentifier: string) {
+  // Reconhecer tanto o gender quanto o nome da instância
+  const isFemale = instanceIdentifier === 'female' || 
+                   instanceIdentifier === 'clienteoculto-mulher' ||
+                   instanceIdentifier === Deno.env.get('EVOLUTION_INSTANCE_NAME_FEMALE');
+  
+  if (isFemale) {
     return {
       url: Deno.env.get('EVOLUTION_API_URL_FEMALE'),
       key: Deno.env.get('EVOLUTION_API_KEY_FEMALE'),
@@ -130,6 +135,7 @@ function getEvolutionCredentials(aiGender: string) {
     };
   }
   
+  // Default: male/neutral
   return {
     url: Deno.env.get('EVOLUTION_API_URL'),
     key: Deno.env.get('EVOLUTION_API_KEY'),
