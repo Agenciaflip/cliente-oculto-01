@@ -168,23 +168,51 @@ const NewAnalysis = () => {
         description: "Processamento iniciado automaticamente...",
       });
 
-      // 🚀 TRIGGER AUTOMÁTICO - Invocar process-analysis
-      supabase.functions.invoke('process-analysis', {
-        body: { analysis_id: analysis.id }
-      }).then(() => {
-        console.log('Process-analysis invoked successfully');
-      }).catch((err) => {
-        console.error('Error invoking process-analysis:', err);
-      });
+      // 🚀 TRIGGER AUTOMÁTICO - Invocar process-analysis com retry
+      try {
+        const { data, error: invokeError } = await supabase.functions.invoke('process-analysis', {
+          body: { analysis_id: analysis.id }
+        });
+        
+        if (invokeError) {
+          console.error('❌ Erro ao iniciar processamento:', invokeError);
+          toast({
+            title: "Aviso",
+            description: "Análise criada mas pode haver atraso no processamento. Recarregue a página em alguns segundos.",
+            variant: "default"
+          });
+        } else {
+          console.log('✅ Process-analysis iniciado com sucesso');
+        }
+      } catch (err) {
+        console.error('❌ Erro crítico ao invocar process-analysis:', err);
+        toast({
+          title: "Processamento atrasado",
+          description: "A análise foi criada mas pode levar alguns minutos para iniciar.",
+          variant: "default"
+        });
+      }
 
-      // Redirecionar IMEDIATAMENTE para a página de detalhes
+      // Redirecionar para a página de detalhes
       navigate(`/dashboard/analysis/${analysis.id}`);
 
     } catch (error: any) {
-      console.error("Error creating analysis:", error);
+      console.error("❌ Erro ao criar análise:", error);
+      
+      let errorMessage = error.message;
+      
+      // Detectar erros específicos
+      if (error.message?.includes('Load failed')) {
+        errorMessage = "Erro de conexão ao iniciar análise. Verifique sua internet e tente novamente.";
+      } else if (error.code === 'PGRST116') {
+        errorMessage = "Erro ao salvar no banco de dados. Tente novamente.";
+      } else if (error.message?.includes('process-analysis')) {
+        errorMessage = "A análise foi criada mas o processamento pode estar atrasado.";
+      }
+      
       toast({
         title: "Erro ao criar análise",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
       setIsLoading(false);

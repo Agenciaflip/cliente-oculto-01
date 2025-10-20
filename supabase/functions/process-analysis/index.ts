@@ -240,7 +240,7 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'llama-3.1-sonar-small-128k-online',
+          model: 'llama-3.1-sonar-large-128k-online',
           messages: [
             {
               role: 'system',
@@ -284,11 +284,12 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
         console.error(`❌ [${pendingAnalysis.id}] Perplexity falhou - Status: ${errorStatus}`);
         console.error(`❌ [${pendingAnalysis.id}] Erro: ${errorText.substring(0, 300)}`);
         
-        // Persistir erro para auditoria
+        // ✅ FALLBACK - Continuar sem pesquisa
         companyInfo = {
           error: `Perplexity API failed with status ${errorStatus}`,
           error_details: errorText.substring(0, 500),
-          attempted_at: new Date().toISOString()
+          attempted_at: new Date().toISOString(),
+          fallback: 'Proceeding without research'
         };
         
         await supabase
@@ -298,6 +299,8 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
             processing_stage: 'generating_strategy'
           })
           .eq('id', pendingAnalysis.id);
+        
+        console.log(`⚠️ [${pendingAnalysis.id}] Continuando sem pesquisa Perplexity`);
       }
     }
 
