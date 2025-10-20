@@ -60,6 +60,9 @@ serve(async (req) => {
 
     console.log('🔍 Monitor: Buscando conversas ativas...');
 
+    // 🧹 CLEANUP: Liberar mensagens travadas (claim > 10 minutos)
+    await cleanupStuckMessages(supabase);
+
     // Se tem analysis_id específico, buscar apenas ele
     let query = supabase
       .from('analysis_requests')
@@ -260,6 +263,55 @@ function suggestVariedReaction(usedReactions: string[]): string[] {
   return unused.length > 0 ? unused : allReactions;
 }
 
+// ============= CLEANUP DE MENSAGENS TRAVADAS =============
+async function cleanupStuckMessages(supabase: any) {
+  const STUCK_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutos
+  const now = new Date();
+  
+  try {
+    const { data: stuckMessages } = await supabase
+      .from('conversation_messages')
+      .select('*')
+      .eq('role', 'user')
+      .eq('metadata->>processed', 'false')
+      .not('metadata->>claimed_at', 'is', null);
+    
+    if (!stuckMessages?.length) return;
+    
+    let cleanedCount = 0;
+    for (const msg of stuckMessages) {
+      const claimedAt = new Date(msg.metadata.claimed_at);
+      const elapsedMs = now.getTime() - claimedAt.getTime();
+      
+      if (elapsedMs > STUCK_THRESHOLD_MS) {
+        console.log(`🧹 Limpando mensagem travada: ${msg.id} (stuck por ${(elapsedMs / 1000 / 60).toFixed(1)}min)`);
+        
+        await supabase
+          .from('conversation_messages')
+          .update({
+            metadata: {
+              ...msg.metadata,
+              claimed_at: null,
+              claimed_by: null,
+              recovered_at: now.toISOString(),
+              stuck_duration_ms: elapsedMs,
+              previous_claim_at: msg.metadata.claimed_at
+            }
+          })
+          .eq('id', msg.id);
+        
+        cleanedCount++;
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      console.log(`✅ Cleanup concluído: ${cleanedCount} mensagens liberadas`);
+    }
+  } catch (error) {
+    console.error('❌ Erro no cleanup de mensagens travadas:', error);
+  }
+}
+
 async function processConversation(
   analysis: any,
   supabase: any,
@@ -319,26 +371,99 @@ async function processConversation(
     const timeSinceLastMessage = Date.now() - new Date(analysis.last_message_at).getTime();
 
     // CENÁRIO A: Mensagens não processadas (PRIORIDADE)
-    // Incluir mensagens claimed há mais de 2 minutos (timeout de claim)
-    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const CLAIM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos
+    const now = new Date();
     
+    // Buscar mensagens não processadas
     const { data: unprocessedMessages } = await supabase
       .from('conversation_messages')
       .select('*')
       .eq('analysis_id', analysis.id)
       .eq('role', 'user')
       .eq('metadata->>processed', 'false')
-      .or(`metadata->>claimed_at.is.null,metadata->>claimed_at.lt.${twoMinutesAgo}`)
       .order('created_at', { ascending: true });
 
     const unprocessedList = unprocessedMessages || [];
+    const messagesToProcess: any[] = [];
 
-    if (unprocessedList.length > 0) {
+    // ============= VALIDAÇÃO DE CLAIMS E TIMEOUTS =============
+    for (const msg of unprocessedList) {
+      // 1. Verificar se tem claim
+      if (msg.metadata?.claimed_at) {
+        const claimedAt = new Date(msg.metadata.claimed_at);
+        const elapsedMs = now.getTime() - claimedAt.getTime();
+        const elapsedMinutes = elapsedMs / 1000 / 60;
+        
+        // Se claim < 5 minutos, pular (worker ainda processando)
+        if (elapsedMs < CLAIM_TIMEOUT_MS) {
+          console.log(`⏭️ [${analysis.id}] Mensagem ${msg.id} claimed recentemente (${elapsedMinutes.toFixed(1)}min atrás), pulando.`);
+          continue;
+        }
+        
+        // Claim expirado, liberar para reprocessamento
+        console.log(`⚠️ [${analysis.id}] Claim expirado para mensagem ${msg.id} (${elapsedMinutes.toFixed(1)}min), liberando...`);
+        
+        await supabase
+          .from('conversation_messages')
+          .update({
+            metadata: {
+              ...msg.metadata,
+              claimed_at: null,
+              claimed_by: null,
+              claim_expired: true,
+              claim_expired_at: now.toISOString(),
+              previous_claim_at: msg.metadata.claimed_at,
+              previous_claim_by: msg.metadata.claimed_by,
+              claim_duration_ms: elapsedMs
+            }
+          })
+          .eq('id', msg.id);
+      }
+      
+      // 2. Verificar se next_ai_response_at passou sem resposta
+      if (msg.metadata?.next_ai_response_at) {
+        const nextResponseTime = new Date(msg.metadata.next_ai_response_at);
+        
+        if (now > nextResponseTime && msg.metadata.processed === false) {
+          const delayMs = now.getTime() - nextResponseTime.getTime();
+          const delayMinutes = delayMs / 1000 / 60;
+          
+          console.log(`⚠️ [${analysis.id}] Resposta ATRASADA detectada para mensagem ${msg.id}! Era pra responder ${delayMinutes.toFixed(1)}min atrás`);
+          
+          // Forçar reprocessamento
+          await supabase
+            .from('conversation_messages')
+            .update({
+              metadata: {
+                ...msg.metadata,
+                claimed_at: null,
+                claimed_by: null,
+                force_reprocess: true,
+                delayed_by_ms: delayMs,
+                delayed_response_detected_at: now.toISOString()
+              }
+            })
+            .eq('id', msg.id);
+        }
+      }
+      
+      // Adicionar à fila de processamento
+      messagesToProcess.push(msg);
+    }
+
+    if (messagesToProcess.length > 0) {
       // Atomic claim to avoid duplicate processing
       const runId = crypto.randomUUID();
       const claimedMessages: any[] = [];
-      for (const msg of unprocessedList) {
-        const newMeta = { ...(msg.metadata || {}), claimed_by: runId, claimed_at: new Date().toISOString() };
+      
+      for (const msg of messagesToProcess) {
+        const newMeta = { 
+          ...(msg.metadata || {}), 
+          claimed_by: runId, 
+          claimed_at: new Date().toISOString(),
+          claim_attempt: (msg.metadata?.claim_attempt || 0) + 1
+        };
+        
         const { data: updated, error } = await supabase
           .from('conversation_messages')
           .update({ metadata: newMeta })
@@ -348,6 +473,7 @@ async function processConversation(
           .eq('metadata->>processed', 'false')
           .select('id, metadata')
           .limit(1);
+          
         if (!error && updated && updated.length > 0) {
           claimedMessages.push({ ...msg, metadata: updated[0].metadata });
         }
