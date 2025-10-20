@@ -9,6 +9,8 @@ export const DEPTH_CONFIG = {
     minDelay: 30, // 30 segundos
     maxDelay: 120, // 2 minutos
     timeoutMinutes: 30,
+    maxFollowUps: 3,
+    followUpDelays: [15, 30, 60], // 15min, 30min, 1h (em minutos)
   },
   intermediate: {
     name: 'Análise Intermediária',
@@ -19,6 +21,8 @@ export const DEPTH_CONFIG = {
     maxDelay: 240, // 4 minutos
     timeoutMinutes: 24 * 60, // 24 horas
     reactivationTimes: [120, 360, 720], // 2h, 6h, 12h em minutos
+    maxFollowUps: 3,
+    followUpDelays: [30, 60, 120], // 30min, 1h, 2h (em minutos)
   },
   deep: {
     name: 'Análise Profunda',
@@ -29,6 +33,8 @@ export const DEPTH_CONFIG = {
     maxDelay: 360, // 6 minutos
     timeoutMinutes: 5 * 24 * 60, // 5 dias
     reactivationDays: [2, 3, 4],
+    maxFollowUps: 3,
+    followUpDelays: [60, 120, 240], // 1h, 2h, 4h (em minutos)
   }
 };
 
@@ -152,4 +158,24 @@ export function shouldTimeout(analysis: any, messageCount: number): boolean {
   
   // Finalizar se atingiu duração máxima OU máximo de interações
   return timeSinceStart >= config.maxDuration || messageCount >= config.maxInteractions * 2;
+}
+
+/**
+ * NOVO: Calcula próximo horário de follow-up
+ */
+export function calculateNextFollowUpTime(
+  analysis: any,
+  followUpsSent: number
+): string | null {
+  const depth = analysis.analysis_depth || 'quick';
+  const config = DEPTH_CONFIG[depth as keyof typeof DEPTH_CONFIG] || DEPTH_CONFIG.quick;
+  
+  if (followUpsSent >= config.maxFollowUps) {
+    return null; // Não há mais follow-ups
+  }
+  
+  const delayMinutes = config.followUpDelays[followUpsSent];
+  const nextTime = new Date(Date.now() + delayMinutes * 60 * 1000);
+  
+  return nextTime.toISOString();
 }

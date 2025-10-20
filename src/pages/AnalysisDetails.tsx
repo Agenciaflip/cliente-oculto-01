@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
 import { AnalysisTimer } from "@/components/AnalysisTimer";
 import { NextResponseTimer } from "@/components/NextResponseTimer";
+import { FollowUpTimer } from "@/components/FollowUpTimer";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -637,6 +638,19 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
               startedAt={analysis.started_at}
               timeoutMinutes={analysis.timeout_minutes || 120}
               status={analysis.status}
+              metadata={analysis.metadata}
+            />
+          </div>
+        )}
+
+        {/* Timer de Follow-up */}
+        {analysis.status === 'chatting' && messages.length > 0 && (
+          <div className="mb-6">
+            <FollowUpTimer
+              followUpsSent={analysis.metadata?.follow_ups_sent || 0}
+              maxFollowUps={analysis.metadata?.max_follow_ups || 3}
+              nextFollowUpAt={analysis.metadata?.next_follow_up_at}
+              lastMessageRole={messages[messages.length - 1]?.role}
             />
           </div>
         )}

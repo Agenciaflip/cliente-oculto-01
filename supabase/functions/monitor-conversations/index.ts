@@ -3,6 +3,9 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getPersonaPrompt } from "../_shared/prompts/personas.ts";
+import { getRandomCasualTopic, getRandomTransition } from "../_shared/prompts/casual-topics.ts";
+import { analyzeObjectivesProgress } from "../_shared/utils/objective-analyzer.ts";
+import { DEPTH_CONFIG, calculateNextFollowUpTime } from "../_shared/config/analysis-config.ts";
 
 // Função auxiliar para saudação contextual (horário de Brasília)
 function getGreetingByTime(): string {
@@ -395,15 +398,39 @@ async function processConversation(
       const questionsStrategy = analysis.questions_strategy;
       const totalQuestions = questionsStrategy?.questions?.length || 0;
 
-      // Determinar próxima ação
+      // NOVO: Conversation Stage Tracker
+      const metadata = analysis.metadata || {};
+      const conversationStage = metadata.conversation_stage || 'warm_up';
+      const casualInteractions = metadata.casual_interactions || 0;
+      const objectiveQuestionsAsked = metadata.objective_questions_asked || 0;
+      const totalInteractions = aiQuestionsCount;
+
+      // Determinar próxima ação baseado em estágio
       let nextQuestion: any = null;
       let nextStepInstruction = '';
+      let newStage = conversationStage;
 
-      if (currentQuestionIndex < totalQuestions) {
-        nextQuestion = questionsStrategy.questions[currentQuestionIndex];
-        nextStepInstruction = `Faça a próxima pergunta (${currentQuestionIndex + 1}/${totalQuestions}): ${nextQuestion.expected_info}`;
-      } else {
-        nextStepInstruction = 'Perguntas estruturadas completas - continue conversa livre';
+      // CAMADA 1: WARM-UP (primeiras 2-3 interações)
+      if (conversationStage === 'warm_up' && casualInteractions < 2) {
+        const casualTopic = getRandomCasualTopic(analysis.business_segment);
+        nextStepInstruction = `WARM-UP: Faça uma pergunta CASUAL sobre a empresa (NÃO relacionada ao objetivo): "${casualTopic}" - Seja natural e curioso.`;
+        newStage = 'warm_up';
+      }
+      // CAMADA 2: TRANSITION (após warm-up)
+      else if (conversationStage === 'warm_up' && casualInteractions >= 2) {
+        const transition = getRandomTransition();
+        nextStepInstruction = `TRANSIÇÃO: Use "${transition}" e então INTRODUZA SUTILMENTE o primeiro objetivo: ${analysis.investigation_goals?.split('\n')[0] || questionsStrategy.questions[0]?.expected_info}`;
+        newStage = 'transition';
+      }
+      // CAMADA 3: OBJECTIVE FOCUS
+      else {
+        if (currentQuestionIndex < totalQuestions) {
+          nextQuestion = questionsStrategy.questions[currentQuestionIndex];
+          nextStepInstruction = `Faça a próxima pergunta (${currentQuestionIndex + 1}/${totalQuestions}): ${nextQuestion.expected_info}`;
+        } else {
+          nextStepInstruction = 'Perguntas estruturadas completas - continue conversa livre';
+        }
+        newStage = 'objective_focus';
       }
 
       // Construir systemPrompt
@@ -430,30 +457,41 @@ ${conversationAnalysis.questionsAsked.length > 0 ? `- Já perguntado: ${conversa
 ${conversationAnalysis.topicsDiscussed.length > 0 ? `- Tópicos discutidos: ${conversationAnalysis.topicsDiscussed.join(', ')}` : ''}
 ${conversationAnalysis.recentUserQuestions.length > 0 ? `- Últimas perguntas do vendedor: ${conversationAnalysis.recentUserQuestions.join(' | ')}` : ''}
 
-🎯 REGRAS CRÍTICAS DE CONVERSA NATURAL:
+🎯 REGRAS DE NATURALIDADE CONVERSACIONAL (CRÍTICO):
 
-1. RESPONDER PRIMEIRO, PERGUNTAR DEPOIS:
-   - SE a última mensagem do vendedor tiver uma PERGUNTA (contém "?"), você DEVE responder objetivamente ANTES de fazer sua próxima pergunta
-   - Resposta deve ser CURTA (1-2 linhas), direta e natural
-   - Só DEPOIS da resposta, faça UMA nova pergunta relacionada ao objetivo
-   
-   Exemplos:
-   Vendedor: "Quantos pães você quer?"
-   ❌ ERRADO: "E vocês fazem entrega?"
-   ✅ CORRETO: "uns 6 pães mesmo, vocês fazem entrega?"
-   
-   Vendedor: "Para quando você precisa?"
-   ❌ ERRADO: "Qual é o preço?"
-   ✅ CORRETO: "pra amanhã de manhã, qual o valor?"
+⚠️ PRIMEIRA MENSAGEM - NUNCA seja direto demais:
+   ❌ ERRADO: "bom dia, qual o preço da picanha?"
+   ✅ CORRETO: "bom dia! passando por aqui vi que vocês vendem carnes, é tudo fresco?"
 
-2. UMA PERGUNTA POR VEZ:
-   - Faça APENAS uma pergunta por mensagem
-   - Aguarde a resposta antes de avançar
-   - Não atropele o vendedor
+⚠️ MENSAGENS 2-3 (WARM-UP) - Conversa casual ANTES do objetivo:
+   - Faça perguntas genéricas sobre a empresa
+   - Demonstre curiosidade sobre coisas não relacionadas ao objetivo
+   - Exemplos: "há quanto tempo vocês estão aqui?", "que cheiro gostoso!", "vocês fazem delivery?"
+   - AINDA NÃO pergunte sobre seu objetivo principal
 
-3. NATURALIDADE BRASILEIRA:
+⚠️ MENSAGEM 4+ (TRANSIÇÃO E OBJETIVO):
+   - Faça transição natural: "ah, já que to aqui, queria saber..."
+   - Só então pergunte sobre o objetivo principal
+   - Intercale perguntas do objetivo com comentários casuais
+
+🎭 NATURALIDADE BRASILEIRA:
    - Use linguagem coloquial: "vcs", "pra", "tá", "né", "uns", "umas"
    - Mensagens curtas (máximo 2-3 linhas)
+   - Tom casual mas educado
+   - ZERO emojis
+
+🤝 RESPONDER PRIMEIRO, PERGUNTAR DEPOIS:
+   - SE a última mensagem do vendedor tiver uma PERGUNTA (contém "?"), você DEVE responder objetivamente ANTES
+   - Resposta deve ser CURTA (1-2 linhas)
+   - Exemplos:
+     Vendedor: "Quantos pães você quer?"
+     ❌ ERRADO: "E vocês fazem entrega?"
+     ✅ CORRETO: "uns 6 pães mesmo, vocês fazem entrega?"
+
+🎲 REAJA NATURALMENTE:
+   - Se vendedor mencionar algo interessante, comente
+   - Não seja robótico seguindo roteiro
+   - 15% das interações: pergunte algo aleatório não relacionado ao objetivo
    - Tom casual mas educado
    - ZERO emojis
 
@@ -562,7 +600,8 @@ LEMBRE-SE:
         metadata: {
           question_order: nextQuestion?.order || currentQuestionIndex + 1,
           expected_info: nextQuestion?.expected_info || 'conversa livre',
-          answered_seller_question: hasSellerQuestion || false
+          answered_seller_question: hasSellerQuestion || false,
+          conversation_stage: newStage
         }
       });
 
@@ -574,49 +613,136 @@ LEMBRE-SE:
           .eq('id', msg.id);
       }
 
-      // Atualizar last_message_at
+      // NOVO: Atualizar conversation stage e analisar objetivos
+      const updatedCasualInteractions = newStage === 'warm_up' ? casualInteractions + 1 : casualInteractions;
+      const updatedObjectiveQuestions = newStage === 'objective_focus' ? objectiveQuestionsAsked + 1 : objectiveQuestionsAsked;
+
+      // Analisar progresso dos objetivos
+      let progressData = metadata.progress || { total_objectives: 0, achieved_objectives: 0, percentage: 0 };
+      
+      if (analysis.investigation_goals && updatedObjectiveQuestions > 0) {
+        try {
+          const allMessages = await supabase
+            .from('conversation_messages')
+            .select('*')
+            .eq('analysis_id', analysis.id)
+            .order('created_at', { ascending: true });
+
+          if (allMessages.data) {
+            progressData = await analyzeObjectivesProgress(
+              analysis.investigation_goals,
+              allMessages.data,
+              openAIKey
+            );
+          }
+        } catch (err) {
+          console.error(`⚠️ Erro ao analisar objetivos:`, err);
+        }
+      }
+
+      // NOVO: Resetar follow_ups se usuário respondeu
+      const updatedMetadata = {
+        ...metadata,
+        conversation_stage: newStage,
+        casual_interactions: updatedCasualInteractions,
+        objective_questions_asked: updatedObjectiveQuestions,
+        total_interactions: totalInteractions + 1,
+        progress: progressData,
+        // Resetar follow-ups quando usuário responde
+        follow_ups_sent: 0,
+        next_follow_up_at: null,
+        last_follow_up_at: null
+      };
+
+      // Atualizar análise
       await supabase
         .from('analysis_requests')
-        .update({ last_message_at: new Date().toISOString() })
+        .update({ 
+          last_message_at: new Date().toISOString(),
+          metadata: updatedMetadata
+        })
         .eq('id', analysis.id);
+
+      console.log(`✅ [${analysis.id}] Stage: ${newStage}, Casual: ${updatedCasualInteractions}, Objectives: ${progressData.percentage}%`);
 
       return { analysis_id: analysis.id, action: 'responded', grouped: claimedMessages.length };
     }
 
-    // CENÁRIO B: Nudge (20 minutos sem resposta)
+    // CENÁRIO B: Sistema de Follow-up (3 tentativas progressivas)
     if (lastMessage.role === 'ai') {
-      const TWENTY_MINUTES = 20 * 60 * 1000;
+      const metadata = analysis.metadata || {};
+      const followUpsSent = metadata.follow_ups_sent || 0;
+      const depth = analysis.analysis_depth || 'quick';
+      const config = DEPTH_CONFIG[depth as keyof typeof DEPTH_CONFIG] || DEPTH_CONFIG.quick;
+      const maxFollowUps = config.maxFollowUps || 3;
+      const nextFollowUpAt = metadata.next_follow_up_at;
 
-      if (timeSinceLastMessage > TWENTY_MINUTES && !analysis.nudge_sent) {
-        console.log(`👋 [${analysis.id}] Enviando nudge (20+ min sem resposta)`);
+      // Se ainda há tentativas e chegou o horário
+      if (followUpsSent < maxFollowUps) {
+        // Se não tem próximo follow-up agendado, agendar o primeiro
+        if (!nextFollowUpAt) {
+          const nextTime = calculateNextFollowUpTime(analysis, followUpsSent);
+          
+          await supabase
+            .from('analysis_requests')
+            .update({
+              metadata: {
+                ...metadata,
+                follow_ups_sent: followUpsSent,
+                max_follow_ups: maxFollowUps,
+                next_follow_up_at: nextTime
+              }
+            })
+            .eq('id', analysis.id);
 
-        const nudgeVariations = [
-          'oi, tudo bem?',
-          'opa, ainda tá aí?',
-          'e aí, consegue me ajudar?',
-          'oi, viu minha msg?'
-        ];
+          console.log(`⏰ [${analysis.id}] Follow-up ${followUpsSent + 1}/${maxFollowUps} agendado para: ${nextTime}`);
+        }
+        // Se chegou o horário do follow-up
+        else if (new Date() >= new Date(nextFollowUpAt)) {
+          console.log(`🔔 [${analysis.id}] Enviando follow-up ${followUpsSent + 1}/${maxFollowUps}`);
 
-        const nudgeMessage = nudgeVariations[Math.floor(Math.random() * nudgeVariations.length)];
+          const followUpVariations = [
+            'oi, conseguiu dar uma olhada?',
+            'opa, tudo bem? consegue me ajudar?',
+            'e aí, viu minha mensagem?',
+            'oi de novo, ainda pode me passar essa info?'
+          ];
 
-        await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, nudgeMessage);
+          const followUpMessage = followUpVariations[Math.floor(Math.random() * followUpVariations.length)];
 
-        await supabase.from('conversation_messages').insert({
-          analysis_id: analysis.id,
-          role: 'ai',
-          content: nudgeMessage,
-          metadata: { processed: true, is_nudge: true, nudge_type: '20min' }
-        });
+          await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, followUpMessage);
 
-        await supabase
-          .from('analysis_requests')
-          .update({
-            nudge_sent: true,
-            last_message_at: new Date().toISOString()
-          })
-          .eq('id', analysis.id);
+          await supabase.from('conversation_messages').insert({
+            analysis_id: analysis.id,
+            role: 'ai',
+            content: followUpMessage,
+            metadata: { 
+              processed: true, 
+              is_follow_up: true, 
+              follow_up_number: followUpsSent + 1,
+              max_follow_ups: maxFollowUps
+            }
+          });
 
-        return { analysis_id: analysis.id, action: 'nudge_sent' };
+          const newFollowUpsSent = followUpsSent + 1;
+          const nextTime = calculateNextFollowUpTime(analysis, newFollowUpsSent);
+
+          await supabase
+            .from('analysis_requests')
+            .update({
+              last_message_at: new Date().toISOString(),
+              metadata: {
+                ...metadata,
+                follow_ups_sent: newFollowUpsSent,
+                last_follow_up_at: new Date().toISOString(),
+                next_follow_up_at: nextTime
+              }
+            })
+            .eq('id', analysis.id);
+
+          console.log(`✅ [${analysis.id}] Follow-up ${newFollowUpsSent}/${maxFollowUps} enviado`);
+          return { analysis_id: analysis.id, action: 'follow_up_sent', follow_up_number: newFollowUpsSent };
+        }
       }
     }
 
