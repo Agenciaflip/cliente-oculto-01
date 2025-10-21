@@ -74,10 +74,9 @@ serve(async (req) => {
       // Se não tem body, processa todas
     }
 
-    // Debounce de 2 segundos para agrupar mensagens rápidas
+    // Agrupamento agora é controlado pela janela dinâmica (next_ai_response_at)
     if (specificAnalysisId) {
-      console.log(`⏱️ [${specificAnalysisId}] Aguardando 2s para agrupar mensagens...`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log(`⏰ [${specificAnalysisId}] Processando com janela dinâmica de agrupamento (sem debounce fixo)`);
     }
 
     console.log('🔍 Monitor: Buscando conversas ativas...');
