@@ -47,6 +47,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
   const [showConfetti, setShowConfetti] = useState(false);
   const [previousPercentage, setPreviousPercentage] = useState(0);
   const [conversationPlan, setConversationPlan] = useState<any>(null);
+  const [progress, setProgress] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const realtimePollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -291,6 +292,11 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           const metadata = updatedAnalysis.metadata as any;
           if (metadata?.conversation_plan) {
             setConversationPlan(metadata.conversation_plan);
+          }
+          
+          // ✅ CORREÇÃO 1: Atualizar progresso como estado separado
+          if (metadata?.progress) {
+            setProgress(metadata.progress);
           }
           
           // 🎉 Verificar se objetivos foram concluídos (0 -> 100)
@@ -707,10 +713,10 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
         {(analysis.status === 'chatting' || analysis.status === 'pending_follow_up') && (
           <div className="mb-6">
             <ObjectiveProgressBar
-              totalObjectives={analysis.metadata?.progress?.total_objectives || 0}
-              achievedObjectives={analysis.metadata?.progress?.achieved_objectives || 0}
-              percentage={analysis.metadata?.progress?.percentage || 0}
-              objectivesStatus={analysis.metadata?.progress?.objectives_status || {}}
+              totalObjectives={progress?.total_objectives || 0}
+              achievedObjectives={progress?.achieved_objectives || 0}
+              percentage={progress?.percentage || 0}
+              objectivesStatus={progress?.objectives_status || {}}
             />
             <Confetti trigger={showConfetti} onComplete={() => setShowConfetti(false)} />
           </div>

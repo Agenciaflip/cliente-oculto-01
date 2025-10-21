@@ -1140,7 +1140,7 @@ LEMBRE-SE:
       const updatedCasualInteractions = newStage === 'warm_up' ? casualInteractions + 1 : casualInteractions;
       const updatedObjectiveQuestions = newStage === 'objective_focus' ? objectiveQuestionsAsked + 1 : objectiveQuestionsAsked;
 
-      // Analisar progresso dos objetivos
+      // ✅ CORREÇÃO 3: Analisar objetivos ANTES de gerar resposta
       let progressData = metadata.progress || { total_objectives: 0, achieved_objectives: 0, percentage: 0 };
       
       if (analysis.investigation_goals && updatedObjectiveQuestions > 0) {
@@ -1158,19 +1158,37 @@ LEMBRE-SE:
               openAIKey
             );
             
-            // 🎉 SE OBJETIVOS 100% CONCLUÍDOS, DESPEDIR E ENCERRAR
+            // 🎉 SE OBJETIVOS 100% CONCLUÍDOS, DESPEDIR E ENCERRAR **IMEDIATAMENTE**
             if (progressData.percentage === 100) {
               console.log(`🎉 [${analysis.id}] OBJETIVOS 100% CONCLUÍDOS! Encerrando conversa...`);
               
-              // Mensagem de despedida natural
-              const farewellMessage = 'beleza, muito obrigado pela atenção! até mais';
-              await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, farewellMessage);
+              // Marcar mensagens como processadas
+              for (const msg of claimedMessages) {
+                await supabase
+                  .from('conversation_messages')
+                  .update({ metadata: { ...msg.metadata, processed: true } })
+                  .eq('id', msg.id);
+              }
+              
+              // Mensagens de despedida naturais
+              const farewellMessages = [
+                'beleza, muito obrigado pela atenção! até mais',
+                'perfeito, valeu mesmo! até logo',
+                'legal, agradeço demais! até mais'
+              ];
+              
+              const farewellMsg = farewellMessages[Math.floor(Math.random() * farewellMessages.length)];
+              await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, farewellMsg);
               
               await supabase.from('conversation_messages').insert({
                 analysis_id: analysis.id,
                 role: 'ai',
-                content: farewellMessage,
-                metadata: { is_farewell: true, objectives_completed: true }
+                content: farewellMsg,
+                metadata: { 
+                  processed: true, 
+                  is_farewell: true, 
+                  objectives_completed: true 
+                }
               });
               
               // Encerrar análise
@@ -1186,6 +1204,24 @@ LEMBRE-SE:
                   }
                 })
                 .eq('id', analysis.id);
+              
+              // ✅ CORREÇÃO 2: Disparar análise de vendas automaticamente
+              try {
+                console.log(`🔍 [${analysis.id}] Iniciando análise de vendas...`);
+                
+                const { error: salesAnalysisError } = await supabase.functions.invoke(
+                  'analyze-sales-conversation',
+                  { body: { analysis_id: analysis.id } }
+                );
+
+                if (salesAnalysisError) {
+                  console.error(`❌ [${analysis.id}] Erro ao gerar análise de vendas:`, salesAnalysisError);
+                } else {
+                  console.log(`✅ [${analysis.id}] Análise de vendas gerada automaticamente`);
+                }
+              } catch (error) {
+                console.error(`❌ [${analysis.id}] Falha ao invocar análise de vendas:`, error);
+              }
               
               console.log(`✅ [${analysis.id}] Análise encerrada - objetivos alcançados!`);
               return { analysis_id: analysis.id, action: 'completed_objectives', percentage: 100 };
@@ -1310,6 +1346,7 @@ LEMBRE-SE:
             .update({
               status: newStatus,
               last_message_at: new Date().toISOString(),
+              completed_at: newStatus === 'completed' ? new Date().toISOString() : null,
               metadata: {
                 ...metadata,
                 follow_ups_sent: newFollowUpsSent,
@@ -1318,6 +1355,26 @@ LEMBRE-SE:
               }
             })
             .eq('id', analysis.id);
+
+          // ✅ CORREÇÃO 2: Análise automática ao completar follow-ups
+          if (newStatus === 'completed') {
+            try {
+              console.log(`🔍 [${analysis.id}] Iniciando análise de vendas (follow-ups completos)...`);
+              
+              const { error: salesAnalysisError } = await supabase.functions.invoke(
+                'analyze-sales-conversation',
+                { body: { analysis_id: analysis.id } }
+              );
+
+              if (salesAnalysisError) {
+                console.error(`❌ [${analysis.id}] Erro ao gerar análise de vendas:`, salesAnalysisError);
+              } else {
+                console.log(`✅ [${analysis.id}] Análise de vendas gerada automaticamente`);
+              }
+            } catch (error) {
+              console.error(`❌ [${analysis.id}] Falha ao invocar análise de vendas:`, error);
+            }
+          }
 
           console.log(`✅ [${analysis.id}] Follow-up ${newFollowUpsSent}/${maxFollowUps} enviado (status: ${newStatus})`);
           return { analysis_id: analysis.id, action: 'follow_up_sent', follow_up_number: newFollowUpsSent };
@@ -1389,12 +1446,32 @@ LEMBRE-SE:
       await supabase
         .from('analysis_requests')
         .update({
+          status: 'completed',
           last_message_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
           metadata: { ...metadata, reactivations_sent: 2, last_reactivation_at: new Date().toISOString() }
         })
         .eq('id', analysis.id);
 
-      console.log(`✅ [${analysis.id}] Segunda reativação enviada (24h)`);
+      // ✅ CORREÇÃO 2: Análise automática após última reativação
+      try {
+        console.log(`🔍 [${analysis.id}] Iniciando análise de vendas (reativações completas)...`);
+        
+        const { error: salesAnalysisError } = await supabase.functions.invoke(
+          'analyze-sales-conversation',
+          { body: { analysis_id: analysis.id } }
+        );
+
+        if (salesAnalysisError) {
+          console.error(`❌ [${analysis.id}] Erro ao gerar análise de vendas:`, salesAnalysisError);
+        } else {
+          console.log(`✅ [${analysis.id}] Análise de vendas gerada automaticamente`);
+        }
+      } catch (error) {
+        console.error(`❌ [${analysis.id}] Falha ao invocar análise de vendas:`, error);
+      }
+
+      console.log(`✅ [${analysis.id}] Segunda reativação enviada (24h) - conversa encerrada`);
       return { analysis_id: analysis.id, action: 'reactivation_24h' };
     }
 
