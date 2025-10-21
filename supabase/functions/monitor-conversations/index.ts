@@ -881,13 +881,17 @@ async function processConversation(
         nextStepInstruction = `TRANSIÇÃO: Use "${transition}" e então INTRODUZA SUTILMENTE o primeiro objetivo: ${analysis.investigation_goals?.split('\n')[0] || questionsStrategy.questions[0]?.expected_info}`;
         newStage = 'transition';
       }
-      // CAMADA 3: OBJECTIVE FOCUS
+      // CAMADA 3: OBJECTIVE FOCUS - FOCO NOS OBJETIVOS REAIS
       else {
-        if (currentQuestionIndex < totalQuestions) {
-          nextQuestion = questionsStrategy.questions[currentQuestionIndex];
-          nextStepInstruction = `Faça a próxima pergunta (${currentQuestionIndex + 1}/${totalQuestions}): ${nextQuestion.expected_info}`;
+        // AGORA: Usa investigation_goals DIRETAMENTE (não questions_strategy)
+        const objectives = (analysis.investigation_goals || '').split('\n').filter((o: string) => o.trim());
+        
+        if (objectiveQuestionsAsked < objectives.length) {
+          const currentObjective = objectives[objectiveQuestionsAsked];
+          nextStepInstruction = `🎯 OBJETIVO ${objectiveQuestionsAsked + 1}/${objectives.length}: Descubra "${currentObjective}" de forma NATURAL. Não pergunte diretamente, mas conduza a conversa para obter essa informação. Seja sutil e conversacional.`;
         } else {
-          nextStepInstruction = 'Perguntas estruturadas completas - continue conversa livre';
+          // Já perguntou sobre todos objetivos, agora aprofunda
+          nextStepInstruction = '✅ Objetivos principais cobertos. Continue conversando para aprofundar informações ou confirmar detalhes pendentes. Seja natural e encerre quando apropriado.';
         }
         newStage = 'objective_focus';
       }
@@ -958,8 +962,10 @@ ${conversationAnalysis.recentUserQuestions.length > 0 ? `- Últimas perguntas do
 
 ⚠️ TRANSIÇÃO E OBJETIVO (mensagem 4+):
    - Faça transição natural: "ah, já que to aqui, queria saber..."
-   - Só então pergunte sobre o objetivo principal
-   - Intercale perguntas do objetivo com comentários casuais
+   - 🎯 FOCO NO OBJETIVO: Pergunte APENAS sobre os objetivos listados acima
+   - NÃO pergunte sobre horários, formas de pagamento, delivery se isso NÃO estiver nos objetivos
+   - Seja direto mas natural ao perguntar sobre o objetivo
+   - Intercale com comentários casuais, mas SEMPRE retorne ao objetivo
 
 🎭 NATURALIDADE BRASILEIRA:
    - Use linguagem coloquial: "vcs", "pra", "tá", "né", "uns", "umas"
@@ -978,14 +984,16 @@ ${conversationAnalysis.recentUserQuestions.length > 0 ? `- Últimas perguntas do
 🎲 REAJA NATURALMENTE:
    - Se vendedor mencionar algo interessante, comente
    - Não seja robótico seguindo roteiro
-   - 15% das interações: pergunte algo aleatório não relacionado ao objetivo
    - Tom casual mas educado
    - ZERO emojis
+   - ⚠️ MAS: Sempre retorne ao objetivo! Não fique divagando
 
-4. PROGRESSÃO GRADUAL:
-   - Não pareça ansioso ou apressado
-   - Deixe a conversa fluir naturalmente
+4. PROGRESSÃO GRADUAL E EFICIENTE:
+   - Seja natural mas OBJETIVO
+   - Após warm-up (2-3 mensagens), vá DIRETO para os objetivos
+   - Não fique fazendo perguntas aleatórias indefinidamente
    - Contextualize suas perguntas baseado nas respostas anteriores
+   - META: Descobrir os objetivos em 5-8 mensagens totais
 
 PRÓXIMO PASSO: ${nextStepInstruction}`;
 
@@ -1175,7 +1183,8 @@ LEMBRE-SE:
 
       // NOVO: Atualizar conversation stage e analisar objetivos
       const updatedCasualInteractions = newStage === 'warm_up' ? casualInteractions + 1 : casualInteractions;
-      const updatedObjectiveQuestions = newStage === 'objective_focus' ? objectiveQuestionsAsked + 1 : objectiveQuestionsAsked;
+      // CRÍTICO: Só incrementa objective_questions_asked quando REALMENTE faz pergunta sobre objetivo (não no warm_up)
+      const updatedObjectiveQuestions = (newStage === 'objective_focus' || newStage === 'transition') ? objectiveQuestionsAsked + 1 : objectiveQuestionsAsked;
       
       // Determinar tipo de interação para próxima mensagem
       const currentInteractionType = isReactivation ? 'reactivation' : 'normal';
