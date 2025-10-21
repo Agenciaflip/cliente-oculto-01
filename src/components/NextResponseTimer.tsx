@@ -18,13 +18,17 @@ export function NextResponseTimer({ messages }: NextResponseTimerProps) {
       .filter((m) => m.role === "user" && m.metadata?.processed === false)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
 
+    console.log('🕐 NextResponseTimer: lastUserMessage =', lastUserMessage?.metadata);
+
     if (!lastUserMessage?.metadata?.next_ai_response_at) {
+      console.log('🕐 NextResponseTimer: Sem next_ai_response_at, ocultando timer');
       setIsWaiting(false);
       return;
     }
 
     setIsWaiting(true);
     const nextResponseAt = new Date(lastUserMessage.metadata.next_ai_response_at);
+    console.log('🕐 NextResponseTimer: nextResponseAt =', nextResponseAt);
 
     const updateTimer = () => {
       const now = Date.now();

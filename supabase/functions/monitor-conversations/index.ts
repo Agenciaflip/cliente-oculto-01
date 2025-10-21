@@ -726,7 +726,47 @@ async function processConversation(
     const unprocessedList = unprocessedMessages || [];
     const messagesToProcess: any[] = [];
 
-    // ============= VALIDAÇÃO DE CLAIMS E TIMEOUTS =============
+    // ============= PASSO 1: IDENTIFICAR JANELA ATIVA PRIMEIRO =============
+    let activeWindowNextResponseAt: string | null = null;
+    const { data: activeWindowMsgs } = await supabase
+      .from('conversation_messages')
+      .select('metadata')
+      .eq('analysis_id', analysis.id)
+      .eq('role', 'user')
+      .not('metadata->>next_ai_response_at', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (activeWindowMsgs && activeWindowMsgs.length > 0) {
+      const existingNextResponse = activeWindowMsgs[0].metadata?.next_ai_response_at;
+      const existingDate = new Date(existingNextResponse);
+      if (existingDate > now) {
+        activeWindowNextResponseAt = existingNextResponse;
+        console.log(`⏰ [${analysis.id}] Janela ativa detectada: ${activeWindowNextResponseAt}`);
+      }
+    }
+
+    // ============= PASSO 2: ATUALIZAR MENSAGENS COM JANELA ATIVA =============
+    // Para mensagens não processadas SEM next_ai_response_at, atualizar IMEDIATAMENTE
+    for (const msg of unprocessedList) {
+      // Se janela ativa existe E mensagem não tem next_ai_response_at, atualizar
+      if (activeWindowNextResponseAt && !msg.metadata?.next_ai_response_at) {
+        console.log(`🏷️ [${analysis.id}] Adicionando next_ai_response_at=${activeWindowNextResponseAt} à mensagem ${msg.id}`);
+        await supabase
+          .from('conversation_messages')
+          .update({
+            metadata: {
+              ...msg.metadata,
+              next_ai_response_at: activeWindowNextResponseAt,
+              grouped_with_active_window: true,
+              added_to_window_at: now.toISOString()
+            }
+          })
+          .eq('id', msg.id);
+      }
+    }
+
+    // ============= PASSO 3: VALIDAÇÃO DE CLAIMS E TIMEOUTS =============
     for (const msg of unprocessedList) {
       // 1. Verificar se tem claim
       if (msg.metadata?.claimed_at) {
@@ -791,41 +831,38 @@ async function processConversation(
       messagesToProcess.push(msg);
     }
 
+    // ============= PASSO 4: CRIAR NOVA JANELA SE NECESSÁRIO =============
+    if (!activeWindowNextResponseAt && messagesToProcess.length > 0) {
+      const randomDelayMs = Math.floor(Math.random() * (3 * 60 * 1000 - 30 * 1000) + 30 * 1000);
+      const nextResponseAt = new Date(Date.now() + randomDelayMs).toISOString();
+      console.log(`⏰ [${analysis.id}] NOVA janela criada: ${(randomDelayMs/1000).toFixed(0)}s até ${nextResponseAt}`);
+      
+      // Marcar TODAS mensagens não processadas (incluindo as que serão claimed)
+      for (const msg of messagesToProcess) {
+        await supabase
+          .from('conversation_messages')
+          .update({
+            metadata: {
+              ...msg.metadata,
+              next_ai_response_at: nextResponseAt,
+              initial_group: true,
+              window_created_at: now.toISOString()
+            }
+          })
+          .eq('id', msg.id);
+      }
+      
+      activeWindowNextResponseAt = nextResponseAt;
+    }
+
     if (messagesToProcess.length > 0) {
-      // 🔍 JANELA DINÂMICA: Verificar se já existe next_ai_response_at ativo
-      let nextResponseAt: string | null = null;
-      let randomDelayMs = 0;
+      // 🔍 JANELA DINÂMICA: Usar janela ativa ou criar nova
+      let nextResponseAt = activeWindowNextResponseAt;
+      let randomDelayMs = nextResponseAt ? new Date(nextResponseAt).getTime() - Date.now() : 0;
       let groupRunId = crypto.randomUUID();
       
-      // Buscar se já existe next_ai_response_at nas mensagens recentes
-      const { data: existingWindowMessages } = await supabase
-        .from('conversation_messages')
-        .select('metadata')
-        .eq('analysis_id', analysis.id)
-        .eq('role', 'user')
-        .not('metadata->>next_ai_response_at', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      
-      if (existingWindowMessages && existingWindowMessages.length > 0) {
-        const existingNextResponse = existingWindowMessages[0].metadata?.next_ai_response_at;
-        const existingDate = new Date(existingNextResponse);
-        const nowDate = new Date();
-        
-        // Se o next_ai_response_at ainda é futuro, usar ele
-        if (existingDate > nowDate) {
-          nextResponseAt = existingNextResponse;
-          randomDelayMs = existingDate.getTime() - nowDate.getTime();
-          console.log(`⏰ [${analysis.id}] Janela de agrupamento JÁ EXISTE: aguardando até ${nextResponseAt} (${(randomDelayMs/1000).toFixed(0)}s restantes)`);
-        }
-      }
-      
-      // Se não existe janela ativa, criar nova (30s a 3min)
-      if (!nextResponseAt) {
-        randomDelayMs = Math.floor(Math.random() * (3 * 60 * 1000 - 30 * 1000) + 30 * 1000);
-        nextResponseAt = new Date(Date.now() + randomDelayMs).toISOString();
-        console.log(`⏰ [${analysis.id}] NOVA janela de agrupamento: ${(randomDelayMs/1000).toFixed(0)}s até ${nextResponseAt}`);
-      }
+      // Janela já foi identificada e atualizada nos passos 1-4 acima
+      console.log(`⏰ [${analysis.id}] Usando janela: ${nextResponseAt} (${(randomDelayMs/1000).toFixed(0)}s)`);
       
       // 🏷️ MARCAR IMEDIATAMENTE todas mensagens não processadas com next_ai_response_at
       const { data: messagesToClaim } = await supabase
