@@ -16,19 +16,19 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.admin-reset-users]
-verify_jwt = false
+verify_jwt = true
 
 [functions.admin-reset-data]
-verify_jwt = false
+verify_jwt = true
 
 [functions.admin-promote-user]
-verify_jwt = false
+verify_jwt = true
 
 [functions.analyze-sales-conversation]
 verify_jwt = false
 
 [functions.admin-delete-user]
-verify_jwt = false
+verify_jwt = true
 
 [functions.admin-toggle-role]
-verify_jwt = false
+verify_jwt = true

@@ -110,8 +110,24 @@ serve(async (req) => {
     
   } catch (error: any) {
     console.error('[admin-toggle-role] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 400,
+    
+    // Map error to generic message for client
+    let clientMessage = 'Failed to update user role. Please try again.';
+    let statusCode = 500;
+    
+    if (error.message.includes('Unauthorized')) {
+      clientMessage = 'You do not have permission to perform this action.';
+      statusCode = 401;
+    } else if (error.message.includes('Forbidden')) {
+      clientMessage = 'You do not have permission to perform this action.';
+      statusCode = 403;
+    } else if (error.message.includes('not found')) {
+      clientMessage = 'The requested resource was not found.';
+      statusCode = 404;
+    }
+    
+    return new Response(JSON.stringify({ error: clientMessage }), {
+      status: statusCode,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

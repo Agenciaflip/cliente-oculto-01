@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-reset-token',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 serve(async (req) => {
@@ -12,31 +12,53 @@ serve(async (req) => {
   }
 
   try {
-    // Verificar token de segurança
-    const resetToken = req.headers.get('x-reset-token');
-    const expectedToken = Deno.env.get('RESET_TOKEN');
+    // Criar cliente Supabase com privilégios de service role
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    if (!resetToken || resetToken !== expectedToken) {
-      console.error('Unauthorized: Invalid or missing reset token');
+    // Verificar autenticação e role de admin
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Reset token validated, proceeding with user reset...');
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+    
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-    // Criar cliente Supabase com privilégios de service role
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    // Verificar se é admin
+    const { data: roleCheck, error: roleError } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "admin")
+      .maybeSingle();
+    
+    if (roleError || !roleCheck) {
+      return new Response(
+        JSON.stringify({ error: 'Forbidden: Admin role required' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`Admin ${user.id} initiated full reset...`);
 
     // 1. Deletar conversation_messages
     console.log('Deleting conversation_messages...');
     const { error: messagesError } = await supabaseAdmin
       .from('conversation_messages')
       .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+      .neq('id', '00000000-0000-0000-0000-000000000000');
 
     if (messagesError) {
       console.error('Error deleting conversation_messages:', messagesError);
@@ -49,7 +71,7 @@ serve(async (req) => {
     const { error: analysisError } = await supabaseAdmin
       .from('analysis_requests')
       .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+      .neq('id', '00000000-0000-0000-0000-000000000000');
 
     if (analysisError) {
       console.error('Error deleting analysis_requests:', analysisError);
@@ -57,12 +79,12 @@ serve(async (req) => {
       console.log('Successfully deleted analysis_requests');
     }
 
-    // 3. Deletar user_roles
+    // 3. Deletar user_roles (exceto do admin que está executando)
     console.log('Deleting user_roles...');
     const { error: rolesError } = await supabaseAdmin
       .from('user_roles')
       .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+      .neq('user_id', user.id);
 
     if (rolesError) {
       console.error('Error deleting user_roles:', rolesError);
@@ -75,7 +97,7 @@ serve(async (req) => {
     const { error: subscriptionsError } = await supabaseAdmin
       .from('subscriptions')
       .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+      .neq('id', '00000000-0000-0000-0000-000000000000');
 
     if (subscriptionsError) {
       console.error('Error deleting subscriptions:', subscriptionsError);
@@ -88,7 +110,7 @@ serve(async (req) => {
     const { error: usageError } = await supabaseAdmin
       .from('usage_tracking')
       .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+      .neq('id', '00000000-0000-0000-0000-000000000000');
 
     if (usageError) {
       console.error('Error deleting usage_tracking:', usageError);
@@ -96,12 +118,12 @@ serve(async (req) => {
       console.log('Successfully deleted usage_tracking');
     }
 
-    // 6. Deletar profiles
+    // 6. Deletar profiles (exceto do admin que está executando)
     console.log('Deleting profiles...');
     const { error: profilesError } = await supabaseAdmin
       .from('profiles')
       .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+      .neq('id', user.id);
 
     if (profilesError) {
       console.error('Error deleting profiles:', profilesError);
@@ -109,28 +131,36 @@ serve(async (req) => {
       console.log('Successfully deleted profiles');
     }
 
-    // 7. Deletar usuários do auth
+    // 7. Deletar usuários do auth (exceto o admin que está executando)
     console.log('Fetching all users from auth...');
     const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
 
     if (listError) {
       console.error('Error listing users:', listError);
       return new Response(
-        JSON.stringify({ error: 'Failed to list users', details: listError }),
+        JSON.stringify({ error: 'Failed to list users' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log(`Found ${users.length} users to delete`);
+    console.log(`Found ${users.length} users to process`);
 
-    for (const user of users) {
-      console.log(`Deleting user: ${user.email} (${user.id})`);
-      const { error: deleteUserError } = await supabaseAdmin.auth.admin.deleteUser(user.id);
+    let deletedCount = 0;
+    for (const targetUser of users) {
+      // Não deletar o próprio admin
+      if (targetUser.id === user.id) {
+        console.log(`Skipping deletion of current admin: ${targetUser.email}`);
+        continue;
+      }
+
+      console.log(`Deleting user: ${targetUser.email} (${targetUser.id})`);
+      const { error: deleteUserError } = await supabaseAdmin.auth.admin.deleteUser(targetUser.id);
       
       if (deleteUserError) {
-        console.error(`Error deleting user ${user.email}:`, deleteUserError);
+        console.error(`Error deleting user ${targetUser.email}:`, deleteUserError);
       } else {
-        console.log(`Successfully deleted user: ${user.email}`);
+        console.log(`Successfully deleted user: ${targetUser.email}`);
+        deletedCount++;
       }
     }
 
@@ -140,17 +170,30 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         message: 'All users and related data have been deleted',
-        deletedUsers: users.length
+        deletedUsers: deletedCount
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
     console.error('Error in admin-reset-users:', error);
+    
+    // Map error to generic message for client
+    let clientMessage = 'Failed to reset users. Please try again.';
+    let statusCode = 500;
+    
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    if (errorMessage.includes('Unauthorized')) {
+      clientMessage = 'You do not have permission to perform this action.';
+      statusCode = 401;
+    } else if (errorMessage.includes('Forbidden')) {
+      clientMessage = 'You do not have permission to perform this action.';
+      statusCode = 403;
+    }
+    
     return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: clientMessage }),
+      { status: statusCode, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
