@@ -923,6 +923,10 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                     ? "Aguardando início da conversa..."
                     : `${messages.length} mensagem${messages.length > 1 ? 's' : ''} trocada${messages.length > 1 ? 's' : ''}`}
                 </CardDescription>
+                {/* Timer da próxima resposta do agente */}
+                <div className="mt-3">
+                  <NextResponseTimer messages={messages} />
+                </div>
               </CardHeader>
               <CardContent>
                 {messages.length === 0 ? (
@@ -942,7 +946,6 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                   </div>
                 ) : (
                   <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-                    <NextResponseTimer messages={messages} />
                     {messages.map((msg) => (
                       <div
                         key={msg.id}
