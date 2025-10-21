@@ -9,10 +9,18 @@ import { DEPTH_CONFIG, calculateNextFollowUpTime } from "../_shared/config/analy
 
 // Função auxiliar para saudação contextual (horário de Brasília)
 function getGreetingByTime(): string {
-  const nowBrasilia = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false });
-  const hour = parseInt(nowBrasilia.split(':')[0]);
-  if (hour >= 5 && hour < 12) return 'bom dia';
-  if (hour >= 12 && hour < 18) return 'boa tarde';
+  // Obter data/hora atual em Brasília
+  const nowUTC = new Date();
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    hour: 'numeric',
+    hour12: false
+  });
+  
+  const brasiliaHour = parseInt(formatter.format(nowUTC));
+  
+  if (brasiliaHour >= 5 && brasiliaHour < 12) return 'bom dia';
+  if (brasiliaHour >= 12 && brasiliaHour < 18) return 'boa tarde';
   return 'boa noite';
 }
 
