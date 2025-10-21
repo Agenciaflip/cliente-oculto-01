@@ -12,6 +12,7 @@ import { SalesAnalysis } from "@/components/SalesAnalysis";
 import { AnalysisTimer } from "@/components/AnalysisTimer";
 import { NextResponseTimer } from "@/components/NextResponseTimer";
 import { FollowUpTimer } from "@/components/FollowUpTimer";
+import { ObjectiveProgressBar } from "@/components/ObjectiveProgressBar";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -642,6 +643,18 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
               timeoutMinutes={analysis.timeout_minutes || 120}
               status={analysis.status}
               metadata={analysis.metadata}
+            />
+          </div>
+        )}
+
+        {/* Barra de Progresso dos Objetivos */}
+        {(analysis.status === 'chatting' || analysis.status === 'pending_follow_up') && analysis.metadata?.progress && (
+          <div className="mb-6">
+            <ObjectiveProgressBar
+              totalObjectives={analysis.metadata.progress.total_objectives || 0}
+              achievedObjectives={analysis.metadata.progress.achieved_objectives || 0}
+              percentage={analysis.metadata.progress.percentage || 0}
+              objectivesStatus={analysis.metadata.progress.objectives_status || {}}
             />
           </div>
         )}
