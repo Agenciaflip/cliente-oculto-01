@@ -13,40 +13,49 @@ export function NextResponseTimer({ messages }: NextResponseTimerProps) {
   const [isWaiting, setIsWaiting] = useState(false);
 
   useEffect(() => {
-    // Procurar pela última mensagem da IA (não do usuário)
-    const aiMessages = messages.filter((m) => m.role === "ai");
+    // Procurar por next_ai_response_at em QUALQUER mensagem (user ou ai), não só AI
+    // Isso garante que o timer apareça mesmo quando a última mensagem é do usuário
+    const now = Date.now();
     
-    if (aiMessages.length === 0) {
+    // Coletar todas as mensagens com next_ai_response_at no futuro
+    const candidatesWithFutureWindow = messages
+      .map((msg) => ({
+        message: msg,
+        nextResponseAt: msg.metadata?.next_ai_response_at,
+      }))
+      .filter((c) => {
+        if (!c.nextResponseAt) return false;
+        const targetDate = new Date(c.nextResponseAt);
+        return targetDate.getTime() > now;
+      })
+      .sort((a, b) => {
+        // Ordenar por próximo tempo (menor diferença para o futuro)
+        const timeA = new Date(a.nextResponseAt).getTime();
+        const timeB = new Date(b.nextResponseAt).getTime();
+        return timeA - timeB;
+      });
+
+    if (candidatesWithFutureWindow.length === 0) {
+      console.log('🕐 NextResponseTimer: Nenhuma janela de resposta futura encontrada');
       setIsWaiting(false);
       return;
     }
 
-    const lastAiMessage = aiMessages[aiMessages.length - 1];
-    const nextResponseAt = lastAiMessage.metadata?.next_ai_response_at;
+    const selectedCandidate = candidatesWithFutureWindow[0];
+    const targetDate = new Date(selectedCandidate.nextResponseAt);
 
-    if (!nextResponseAt) {
-      console.log('🕐 NextResponseTimer: Sem next_ai_response_at na última mensagem AI');
-      setIsWaiting(false);
-      return;
-    }
-
-    const targetDate = new Date(nextResponseAt);
-    
-    if (targetDate.getTime() <= Date.now()) {
-      console.log('🕐 NextResponseTimer: Janela de resposta já passou');
-      setIsWaiting(false);
-      return;
-    }
-
-    console.log('🕐 NextResponseTimer: Próxima resposta em', targetDate);
+    console.log('🕐 NextResponseTimer: Próxima resposta em', targetDate, 
+      'de mensagem', selectedCandidate.message.id, 
+      'role:', selectedCandidate.message.role);
     setIsWaiting(true);
 
     const updateTimer = () => {
       const now = Date.now();
-      const diff = nextResponseAt.getTime() - now;
+      const diff = targetDate.getTime() - now;
 
       if (diff <= 0) {
         setTimeRemaining("Respondendo agora...");
+        setIsWaiting(false);
         return;
       }
 

@@ -744,7 +744,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
         )}
 
         {/* Timer de Follow-up */}
-        {analysis.status === 'chatting' && messages.length > 0 && (
+        {(analysis.status === 'chatting' || analysis.status === 'pending_follow_up') && messages.length > 0 && (
           <div className="mb-6">
             <FollowUpTimer
               followUpsSent={analysis.metadata?.follow_ups_sent || 0}
