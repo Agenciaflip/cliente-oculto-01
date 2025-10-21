@@ -639,6 +639,8 @@ async function processConversation(
   // 🔒 MUTEX: Verificar se conversa já está sendo processada
   const now = new Date().toISOString();
   
+  console.log(`🔐 [${analysis.id}] Tentando adquirir lock (agora=${now})...`);
+  
   // Tentar adquirir lock
   const { data: lockResult } = await supabase
     .from('analysis_requests')
@@ -657,7 +659,8 @@ async function processConversation(
     .select();
   
   if (!lockResult || lockResult.length === 0) {
-    console.log(`🔒 [${analysis.id}] Conversa já está sendo processada por outro worker. Pulando.`);
+    const existingLock = analysis.metadata?.processing_lock;
+    console.log(`🔒 [${analysis.id}] Conversa já está sendo processada. Lock ativo até: ${existingLock?.until || 'desconhecido'}`);
     return { analysis_id: analysis.id, action: 'skipped_locked' };
   }
   
@@ -742,6 +745,16 @@ async function processConversation(
       if (existingDate > now) {
         activeWindowNextResponseAt = existingNextResponse;
         console.log(`⏰ [${analysis.id}] Janela ativa detectada: ${activeWindowNextResponseAt}`);
+        
+        // Salvar na análise para o frontend
+        await supabase.from('analysis_requests').update({
+          metadata: {
+            ...(analysis.metadata || {}),
+            next_ai_response_at: activeWindowNextResponseAt,
+            next_ai_response_source: 'user_message_window',
+            next_ai_response_detected_at: new Date().toISOString()
+          }
+        }).eq('id', analysis.id);
       }
     }
 
@@ -851,6 +864,16 @@ async function processConversation(
           .eq('id', msg.id);
       }
       
+      // Salvar na análise para o frontend
+      await supabase.from('analysis_requests').update({
+        metadata: {
+          ...(analysis.metadata || {}),
+          next_ai_response_at: nextResponseAt,
+          next_ai_response_source: 'created_window',
+          next_ai_response_created_at: now.toISOString()
+        }
+      }).eq('id', analysis.id);
+      
       activeWindowNextResponseAt = nextResponseAt;
     }
 
@@ -898,6 +921,15 @@ async function processConversation(
       // ⏳ AGUARDAR até next_ai_response_at
       console.log(`⏳ [${analysis.id}] Aguardando ${(randomDelayMs/1000).toFixed(0)}s para coletar TODAS as mensagens da janela...`);
       await new Promise(resolve => setTimeout(resolve, randomDelayMs));
+      
+      // Limpar next_ai_response_at da análise (IA vai responder agora)
+      await supabase.from('analysis_requests').update({
+        metadata: {
+          ...(analysis.metadata || {}),
+          next_ai_response_at: null,
+          last_ai_response_started_at: new Date().toISOString()
+        }
+      }).eq('id', analysis.id);
       
       // 📦 COLETAR TODAS as mensagens que chegaram durante a janela
       const { data: finalGroupedMessages } = await supabase
@@ -1270,6 +1302,20 @@ LEMBRE-SE:
             processed: true
           }
         });
+        
+        // Se é o último chunk, atualizar análise com próximo horário
+        if (i === messageChunks.length - 1) {
+          await supabase.from('analysis_requests').update({
+            metadata: {
+              ...(analysis.metadata || {}),
+              next_ai_response_at: nextAiResponseAt,
+              next_ai_response_source: 'ai_planned',
+              ai_last_group_hash: groupHashHex,
+              ai_last_chunked_total: messageChunks.length,
+              ai_last_chunk_sent_at: new Date().toISOString()
+            }
+          }).eq('id', analysis.id);
+        }
         
         // Delay entre chunks (1-3s) exceto no último
         if (i < messageChunks.length - 1) {
