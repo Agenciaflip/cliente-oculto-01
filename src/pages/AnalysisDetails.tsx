@@ -369,7 +369,12 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
   const handleProcessNow = async () => {
     setIsProcessing(true);
     try {
-      const { data, error } = await supabase.functions.invoke('process-analysis');
+      const { data, error } = await supabase.functions.invoke('process-analysis', {
+        body: { 
+          action: 'process_now',
+          analysis_id: id 
+        }
+      });
       
       if (error) {
         toast({

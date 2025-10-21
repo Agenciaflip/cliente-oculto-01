@@ -62,7 +62,97 @@ serve(async (req) => {
     const evolutionKeyFemale = Deno.env.get('EVOLUTION_API_KEY_FEMALE');
     const evolutionInstanceFemale = Deno.env.get('EVOLUTION_INSTANCE_NAME_FEMALE');
 
-    const { action } = await req.json().catch(() => ({}));
+    const { action, analysis_id } = await req.json().catch(() => ({}));
+
+    // Se ação for processar análise específica agora (botão "Processar Agora")
+    if (action === 'process_now' && analysis_id) {
+      console.log(`🚀 Processamento imediato solicitado para análise ${analysis_id}`);
+      
+      // Buscar a análise específica
+      const { data: specificAnalysis, error: fetchError } = await supabase
+        .from('analysis_requests')
+        .select('*')
+        .eq('id', analysis_id)
+        .single();
+
+      if (fetchError || !specificAnalysis) {
+        console.error(`❌ Análise ${analysis_id} não encontrada:`, fetchError);
+        return new Response(
+          JSON.stringify({ error: 'Analysis not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Se estiver agendada, mudar para pending
+      if (specificAnalysis.status === 'scheduled') {
+        console.log(`⏩ Adiantando análise ${analysis_id} de 'scheduled' para 'pending'`);
+        await supabase
+          .from('analysis_requests')
+          .update({ 
+            status: 'pending',
+            scheduled_start_at: null // Remover o agendamento
+          })
+          .eq('id', analysis_id);
+        
+        specificAnalysis.status = 'pending';
+      }
+
+      // Se não estiver em pending, retornar erro
+      if (specificAnalysis.status !== 'pending') {
+        console.log(`⚠️ Análise ${analysis_id} está com status '${specificAnalysis.status}', não pode ser processada agora`);
+        return new Response(
+          JSON.stringify({ 
+            error: `Cannot process analysis with status '${specificAnalysis.status}'`,
+            current_status: specificAnalysis.status
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Marcar como processando
+      await supabase
+        .from('analysis_requests')
+        .update({ 
+          status: 'processing',
+          processing_started_at: new Date().toISOString()
+        })
+        .eq('id', analysis_id);
+
+      // Processar a análise
+      try {
+        await processAnalysis(
+          specificAnalysis,
+          supabase,
+          perplexityKey,
+          openAIKey,
+          evolutionUrl,
+          evolutionKey,
+          evolutionInstance,
+          evolutionUrlFemale,
+          evolutionKeyFemale,
+          evolutionInstanceFemale
+        );
+
+        console.log(`✅ Análise ${analysis_id} processada com sucesso`);
+        return new Response(
+          JSON.stringify({ 
+            success: true,
+            analysis_id: analysis_id,
+            message: 'Analysis processed successfully'
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        console.error(`❌ Erro ao processar análise ${analysis_id}:`, error);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to process analysis',
+            details: error.message
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
 
     // Se ação for finalizar conversas inativas
     if (action === 'finalize_inactive') {
