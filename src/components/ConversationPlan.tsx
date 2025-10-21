@@ -94,28 +94,68 @@ export const ConversationPlan = ({ plan, currentMessageCount }: ConversationPlan
   const circumference = 2 * Math.PI * 40; // raio de 40
   const strokeDashoffset = circumference - (progressPercentage / 100) * circumference;
 
-  // Determinar o que está acontecendo agora
+  // Determinar o que está acontecendo agora (mais detalhado e humanizado)
   const getCurrentStatus = () => {
+    if (plan.current_phase === 'planning') {
+      return 'Analisando perfil do cliente e preparando estratégia de conversa';
+    }
+    
     if (plan.current_phase === 'warm_up') {
-      return 'Iniciando conversa com tópicos casuais para criar rapport';
+      const completedWarmup = Math.min(currentMessageCount, plan.strategy.warm_up_topics.length);
+      const totalWarmup = plan.strategy.warm_up_topics.length;
+      
+      if (completedWarmup < totalWarmup) {
+        const currentTopic = plan.strategy.warm_up_topics[completedWarmup];
+        return `Criando rapport: "${currentTopic}"`;
+      }
+      return 'Finalizando aquecimento e preparando transição para objetivos';
     }
+    
     if (plan.current_phase === 'transition') {
-      return 'Fazendo transição para os objetivos principais';
+      return 'Direcionando conversa para os objetivos principais da investigação';
     }
+    
     if (plan.current_phase === 'investigation') {
       const inProgress = plan.strategy.question_sequence.find(q => q.status === 'in_progress');
       if (inProgress) {
-        return `Investigando: ${inProgress.objective}`;
+        return `🔍 Investigando: "${inProgress.objective}" - aguardando resposta do vendedor`;
       }
+      
+      const completed = plan.strategy.question_sequence.filter(q => q.status === 'completed');
       const nextPending = plan.strategy.question_sequence.find(q => q.status === 'pending' || !q.status);
+      
       if (nextPending) {
-        return `Próximo objetivo: ${nextPending.objective}`;
+        return `✅ ${completed.length} objetivo(s) concluído(s). Próximo: "${nextPending.objective}"`;
       }
+      
+      return 'Analisando informações coletadas e preparando próxima pergunta';
     }
+    
     if (plan.current_phase === 'closing') {
-      return 'Finalizando a conversa';
+      return '🎉 Todos os objetivos alcançados! Finalizando atendimento...';
     }
-    return 'Planejando próxima ação';
+    
+    return 'Processando informações e planejando próxima ação';
+  };
+
+  // Filtrar adaptações relevantes (remover mensagens técnicas de erro)
+  const getRelevantAdaptations = () => {
+    return plan.adaptation_log
+      .filter(log => {
+        const lowerReason = log.reason.toLowerCase();
+        const lowerChanges = log.changes.toLowerCase();
+        
+        // Filtrar mensagens técnicas/erro
+        const isTechnicalError = 
+          lowerReason.includes('erro') || 
+          lowerReason.includes('fallback') ||
+          lowerReason.includes('failed') ||
+          lowerChanges.includes('erro na ia') ||
+          lowerChanges.includes('simplificado devido');
+        
+        return !isTechnicalError;
+      })
+      .slice(-3); // Últimas 3 adaptações relevantes
   };
 
   // Mostrar só 3 objetivos por padrão
@@ -183,14 +223,21 @@ export const ConversationPlan = ({ plan, currentMessageCount }: ConversationPlan
           </div>
         </div>
 
-        {/* O que está acontecendo agora */}
-        <div className="bg-muted/30 p-3 rounded-lg border-l-4 border-primary">
-          <p className="text-xs font-medium text-muted-foreground mb-1">
-            📍 Situação atual:
-          </p>
-          <p className="text-sm font-medium">
-            {getCurrentStatus()}
-          </p>
+        {/* O que está acontecendo agora - mais destacado */}
+        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-4 rounded-lg border-l-4 border-primary shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5">
+              <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-bold text-primary mb-1.5 uppercase tracking-wide">
+                Agora
+              </p>
+              <p className="text-sm font-medium text-foreground leading-relaxed">
+                {getCurrentStatus()}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Progresso Warm-up (se aplicável) */}
@@ -272,35 +319,41 @@ export const ConversationPlan = ({ plan, currentMessageCount }: ConversationPlan
           </div>
         )}
 
-        {/* Adaptações (colapsável) */}
-        {plan.adaptation_log.length > 0 && (
-          <Collapsible open={showAdaptations} onOpenChange={setShowAdaptations}>
-            <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full">
-              <TrendingUp className="h-3.5 w-3.5" />
-              <span className="font-semibold">ADAPTAÇÕES ({plan.adaptation_log.length})</span>
-              <ChevronDown className={cn(
-                "h-3.5 w-3.5 transition-transform ml-auto",
-                showAdaptations && "rotate-180"
-              )} />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 space-y-2">
-              {plan.adaptation_log.slice(-3).map((log, index) => (
-                <div key={index} className="bg-muted/20 p-2 rounded text-xs space-y-1">
-                  <p className="text-muted-foreground">
-                    {new Date(log.timestamp).toLocaleString('pt-BR', { 
-                      day: '2-digit', 
-                      month: '2-digit', 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
-                    })}
-                  </p>
-                  <p className="font-medium">{log.reason}</p>
-                  <p className="text-muted-foreground italic">"{log.changes}"</p>
-                </div>
-              ))}
-            </CollapsibleContent>
-          </Collapsible>
-        )}
+        {/* Adaptações (colapsável) - apenas se houver adaptações relevantes */}
+        {(() => {
+          const relevantAdaptations = getRelevantAdaptations();
+          return relevantAdaptations.length > 0 && (
+            <Collapsible open={showAdaptations} onOpenChange={setShowAdaptations}>
+              <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full">
+                <TrendingUp className="h-3.5 w-3.5" />
+                <span className="font-semibold">AJUSTES DE ESTRATÉGIA ({relevantAdaptations.length})</span>
+                <ChevronDown className={cn(
+                  "h-3.5 w-3.5 transition-transform ml-auto",
+                  showAdaptations && "rotate-180"
+                )} />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2 space-y-2">
+                {relevantAdaptations.map((log, index) => (
+                  <div key={index} className="bg-primary/5 border border-primary/10 p-3 rounded-lg text-xs space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                      <p className="text-muted-foreground font-medium">
+                        {new Date(log.timestamp).toLocaleString('pt-BR', { 
+                          day: '2-digit', 
+                          month: '2-digit', 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        })}
+                      </p>
+                    </div>
+                    <p className="font-semibold text-foreground">{log.reason}</p>
+                    <p className="text-muted-foreground leading-relaxed">💡 {log.changes}</p>
+                  </div>
+                ))}
+              </CollapsibleContent>
+            </Collapsible>
+          );
+        })()}
       </CardContent>
     </Card>
   );
