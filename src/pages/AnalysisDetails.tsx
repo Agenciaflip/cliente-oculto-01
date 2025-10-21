@@ -491,7 +491,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
   };
 
   // Função para determinar status de cada etapa
-  const getStageStatus = (targetStage: string, currentStage: string) => {
+  const getStageStatus = (targetStage: string) => {
     const stageOrder = [
       'awaiting_research',
       'researching',
@@ -505,6 +505,22 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
     // Se a análise falhou, marcar como erro
     if (analysis.status === 'failed') {
       return 'error';
+    }
+    
+    // Usar processing_stage ao invés de status para determinar progresso
+    const currentStage = analysis.processing_stage || 'awaiting_research';
+    
+    // Se está em chatting ou completed no status, usar isso
+    if (analysis.status === 'chatting') {
+      const currentIndex = stageOrder.indexOf('chatting');
+      const targetIndex = stageOrder.indexOf(targetStage);
+      if (targetIndex < currentIndex) return 'completed';
+      if (targetIndex === currentIndex) return 'active';
+      return 'pending';
+    }
+    
+    if (analysis.status === 'completed') {
+      return 'completed';
     }
     
     const targetIndex = stageOrder.indexOf(targetStage);
@@ -834,6 +850,51 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                       Tentativa {analysis.retry_count + 1} de 4
                     </p>
                   )}
+                </CardContent>
+              </Card>
+            )}
+            
+            {/* Card de Status de Processamento em Tempo Real */}
+            {(analysis.status === 'processing' || analysis.status === 'researching') && (
+              <Card className="shadow-soft border-primary/20">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    Status do Processamento
+                  </CardTitle>
+                  <CardDescription>
+                    Acompanhe o progresso da sua análise em tempo real
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <ProcessingStage
+                    icon={<Search />}
+                    title="Pesquisando Empresa"
+                    description="Coletando informações sobre a empresa alvo"
+                    status={getStageStatus('researching')}
+                    isActive={analysis.processing_stage === 'researching'}
+                  />
+                  <ProcessingStage
+                    icon={<Brain />}
+                    title="Gerando Estratégia"
+                    description="Criando plano de perguntas personalizado"
+                    status={getStageStatus('generating_strategy')}
+                    isActive={analysis.processing_stage === 'generating_strategy'}
+                  />
+                  <ProcessingStage
+                    icon={<Send />}
+                    title="Enviando Primeira Mensagem"
+                    description="Iniciando conversa com a empresa"
+                    status={getStageStatus('sending')}
+                    isActive={analysis.processing_stage === 'sending'}
+                  />
+                  <ProcessingStage
+                    icon={<MessageCircle />}
+                    title="Conversando"
+                    description="Interagindo com a empresa e coletando dados"
+                    status={getStageStatus('chatting')}
+                    isActive={analysis.status === 'chatting'}
+                  />
                 </CardContent>
               </Card>
             )}

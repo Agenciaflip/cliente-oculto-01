@@ -114,6 +114,7 @@ serve(async (req) => {
         .from('analysis_requests')
         .update({ 
           status: 'processing',
+          processing_stage: 'awaiting_research',
           processing_started_at: new Date().toISOString()
         })
         .eq('id', analysis_id);
@@ -207,6 +208,7 @@ serve(async (req) => {
       .from('analysis_requests')
       .update({ 
         status: 'processing',
+        processing_stage: 'awaiting_research',
         processing_started_at: new Date().toISOString()
       })
       .in('id', analysisIds);
