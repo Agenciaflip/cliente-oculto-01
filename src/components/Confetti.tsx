@@ -10,20 +10,28 @@ export const Confetti = ({ trigger, onComplete }: ConfettiProps) => {
   useEffect(() => {
     if (!trigger) return;
 
+    let isMounted = true;
     const duration = 3000;
     const animationEnd = Date.now() + duration;
-    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
 
     function randomInRange(min: number, max: number) {
       return Math.random() * (max - min) + min;
     }
 
     const interval: NodeJS.Timeout = setInterval(() => {
+      if (!isMounted) {
+        clearInterval(interval);
+        return;
+      }
+
       const timeLeft = animationEnd - Date.now();
 
       if (timeLeft <= 0) {
         clearInterval(interval);
-        if (onComplete) onComplete();
+        if (onComplete && isMounted) {
+          onComplete();
+        }
         return;
       }
 
@@ -44,7 +52,10 @@ export const Confetti = ({ trigger, onComplete }: ConfettiProps) => {
       });
     }, 250);
 
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [trigger, onComplete]);
 
   return null;

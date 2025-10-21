@@ -4,7 +4,7 @@ import { Clock, Calendar } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { ObjectiveProgressBar } from "./ObjectiveProgressBar";
+
 
 interface AnalysisTimerProps {
   startedAt: string;
@@ -66,61 +66,49 @@ export const AnalysisTimer = ({ startedAt, timeoutMinutes, status, metadata }: A
   const expiresAt = new Date(startBrasilia.getTime() + timeoutMinutes * 60 * 1000);
 
   return (
-    <div className="space-y-4">
-      <Card className="shadow-soft border-primary/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Clock className="h-5 w-5 text-primary" />
-            Tempo de Análise
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">Tempo decorrido</p>
-              <p className="text-xl font-bold text-foreground">{formatTime(timeElapsed)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">Tempo restante</p>
-              <p className="text-xl font-bold text-foreground">{formatTime(timeRemaining)}</p>
-            </div>
+    <Card className="shadow-soft border-primary/20">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <Clock className="h-5 w-5 text-primary" />
+          Tempo de Análise
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">Tempo decorrido</p>
+            <p className="text-xl font-bold text-foreground">{formatTime(timeElapsed)}</p>
           </div>
-
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Progresso Temporal</span>
-              <span className="font-medium">{progress.toFixed(0)}%</span>
-            </div>
-            <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary">
-              <div 
-                className={cn("h-full transition-all", getProgressColor())}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">Tempo restante</p>
+            <p className="text-xl font-bold text-foreground">{formatTime(timeRemaining)}</p>
           </div>
+        </div>
 
-          <div className="pt-2 border-t space-y-1 text-sm">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span>Iniciado: {format(startBrasilia, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
-            </div>
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span>Expira em: {format(expiresAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
-            </div>
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Progresso Temporal</span>
+            <span className="font-medium">{progress.toFixed(0)}%</span>
           </div>
-        </CardContent>
-      </Card>
+          <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary">
+            <div 
+              className={cn("h-full transition-all", getProgressColor())}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
 
-      {/* Barra de Progresso dos Objetivos */}
-      {progressData && progressData.total_objectives > 0 && (
-        <ObjectiveProgressBar
-          totalObjectives={progressData.total_objectives}
-          achievedObjectives={progressData.achieved_objectives}
-          percentage={progressData.percentage}
-          objectivesStatus={progressData.objectives_status}
-        />
-      )}
-    </div>
+        <div className="pt-2 border-t space-y-1 text-sm">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Calendar className="h-4 w-4" />
+            <span>Iniciado: {format(startBrasilia, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
+          </div>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Calendar className="h-4 w-4" />
+            <span>Expira em: {format(expiresAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 };
