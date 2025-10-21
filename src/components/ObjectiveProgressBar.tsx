@@ -23,69 +23,94 @@ export const ObjectiveProgressBar = ({
   percentage,
   objectivesStatus = {}
 }: ObjectiveProgressBarProps) => {
-  if (totalObjectives === 0) {
-    return null;
-  }
+  const objectives = Object.values(objectivesStatus);
+
+  // Sempre mostrar a barra, mesmo com 0 objetivos (mostrará "Analisando objetivos...")
 
   // Calcular ângulo para o círculo (tipo FaceID)
   const circumference = 2 * Math.PI * 45; // raio de 45
   const strokeDashoffset = circumference - (percentage / 100) * circumference;
-
-  const objectives = Object.values(objectivesStatus);
 
   return (
     <Card className="shadow-soft border-primary/20">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <Target className="h-5 w-5 text-primary" />
-          Progresso dos Objetivos
+          {totalObjectives === 0 ? 'Analisando Objetivos...' : 'Progresso dos Objetivos'}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Círculo de progresso tipo FaceID */}
-        <div className="flex items-center justify-center">
-          <div className="relative w-32 h-32">
-            {/* Círculo de fundo */}
-            <svg className="transform -rotate-90 w-32 h-32">
-              <circle
-                cx="64"
-                cy="64"
-                r="45"
-                stroke="currentColor"
-                strokeWidth="8"
-                fill="none"
-                className="text-muted"
-              />
-              {/* Círculo de progresso */}
-              <circle
-                cx="64"
-                cy="64"
-                r="45"
-                stroke="currentColor"
-                strokeWidth="8"
-                fill="none"
-                strokeDasharray={circumference}
-                strokeDashoffset={strokeDashoffset}
-                className={cn(
-                  "transition-all duration-1000 ease-out",
-                  percentage === 100 ? "text-green-500" :
-                  percentage >= 50 ? "text-primary" :
-                  "text-yellow-500"
-                )}
-                strokeLinecap="round"
-              />
-            </svg>
-            {/* Percentual no centro */}
-            <div className="absolute inset-0 flex items-center justify-center flex-col">
-              <span className="text-3xl font-bold text-foreground">
-                {percentage}%
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {achievedObjectives}/{totalObjectives}
-              </span>
+        {totalObjectives === 0 ? (
+          // Estado de carregamento/análise
+          <div className="flex flex-col items-center justify-center py-8 space-y-3">
+            <div className="relative w-24 h-24">
+              <svg className="transform -rotate-90 w-24 h-24 animate-pulse">
+                <circle
+                  cx="48"
+                  cy="48"
+                  r="36"
+                  stroke="currentColor"
+                  strokeWidth="6"
+                  fill="none"
+                  className="text-muted"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Target className="h-8 w-8 text-primary animate-pulse" />
+              </div>
             </div>
+            <p className="text-sm text-muted-foreground text-center">
+              Analisando a conversa para identificar objetivos...
+            </p>
           </div>
-        </div>
+        ) : (
+          <>
+            {/* Círculo de progresso tipo FaceID */}
+            <div className="flex items-center justify-center">
+              <div className="relative w-32 h-32">
+                {/* Círculo de fundo */}
+                <svg className="transform -rotate-90 w-32 h-32">
+                  <circle
+                    cx="64"
+                    cy="64"
+                    r="45"
+                    stroke="currentColor"
+                    strokeWidth="8"
+                    fill="none"
+                    className="text-muted"
+                  />
+                  {/* Círculo de progresso */}
+                  <circle
+                    cx="64"
+                    cy="64"
+                    r="45"
+                    stroke="currentColor"
+                    strokeWidth="8"
+                    fill="none"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={strokeDashoffset}
+                    className={cn(
+                      "transition-all duration-1000 ease-out",
+                      percentage === 100 ? "text-green-500" :
+                      percentage >= 50 ? "text-primary" :
+                      "text-yellow-500"
+                    )}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                {/* Percentual no centro */}
+                <div className="absolute inset-0 flex items-center justify-center flex-col">
+                  <span className="text-3xl font-bold text-foreground">
+                    {percentage}%
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {achievedObjectives}/{totalObjectives}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Lista de objetivos */}
         {objectives.length > 0 && (

@@ -648,13 +648,13 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
         )}
 
         {/* Barra de Progresso dos Objetivos */}
-        {(analysis.status === 'chatting' || analysis.status === 'pending_follow_up') && analysis.metadata?.progress && (
+        {(analysis.status === 'chatting' || analysis.status === 'pending_follow_up') && (
           <div className="mb-6">
             <ObjectiveProgressBar
-              totalObjectives={analysis.metadata.progress.total_objectives || 0}
-              achievedObjectives={analysis.metadata.progress.achieved_objectives || 0}
-              percentage={analysis.metadata.progress.percentage || 0}
-              objectivesStatus={analysis.metadata.progress.objectives_status || {}}
+              totalObjectives={analysis.metadata?.progress?.total_objectives || 0}
+              achievedObjectives={analysis.metadata?.progress?.achieved_objectives || 0}
+              percentage={analysis.metadata?.progress?.percentage || 0}
+              objectivesStatus={analysis.metadata?.progress?.objectives_status || {}}
             />
           </div>
         )}
