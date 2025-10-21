@@ -321,7 +321,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
 
   // Polling como fallback (aumentado para 10s)
   useEffect(() => {
-    if (analysis?.status === "chatting") {
+    if (analysis?.status === "chatting" || analysis?.status === "pending_follow_up") {
       console.log("🔄 Iniciando polling fallback (10s)");
       pollingIntervalRef.current = setInterval(async () => {
         console.log('🔄 Polling fallback executado');
@@ -925,7 +925,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                 </CardDescription>
                 {/* Timer da próxima resposta do agente */}
                 <div className="mt-3">
-                  <NextResponseTimer messages={messages} />
+                  <NextResponseTimer messages={messages} analysisNextResponseAt={analysis.metadata?.next_ai_response_at} />
                 </div>
               </CardHeader>
               <CardContent>
