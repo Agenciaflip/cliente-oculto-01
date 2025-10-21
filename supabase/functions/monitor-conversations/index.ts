@@ -897,14 +897,32 @@ async function processConversation(
       const currentTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
       const appropriateGreeting = getGreetingByTime();
 
+      // Detectar contexto da mensagem
+      const isFirstMessage = aiQuestionsCount === 0;
+      const isReactivation = metadata.last_interaction_type === 'reactivation';
+
+      // Instrução de saudação CONDICIONAL
+      let greetingInstruction = '';
+      if (isFirstMessage || isReactivation) {
+        greetingInstruction = `
+⚠️ SAUDAÇÃO CONTEXTUAL: "${appropriateGreeting}"
+- Use esta saudação no INÍCIO da sua mensagem
+- Exemplo: "${appropriateGreeting}, ${isReactivation ? 'tudo bem? estava pensando aqui' : 'vi que vocês atendem nessa região'}"
+`;
+      } else {
+        greetingInstruction = `
+⚠️ NÃO USE SAUDAÇÃO
+- Esta NÃO é a primeira mensagem da conversa
+- Continue naturalmente SEM "bom dia/boa tarde/boa noite"
+- Exemplo: "certo, e vcs entregam aí?" ou "beleza, quanto fica?"
+`;
+      }
+
       const systemPrompt = `${basePersonaPrompt}
 
 HORÁRIO ATUAL (Brasil): ${currentTime}
 
-⚠️ SAUDAÇÃO CONTEXTUAL OBRIGATÓRIA: "${appropriateGreeting}"
-- Use EXATAMENTE esta saudação: "${appropriateGreeting}"
-- Não use "bom dia", "boa tarde" ou "boa noite" diferente desta
-- Esta é a saudação correta para o horário atual de Brasília
+${greetingInstruction}
 
 🚫 PROIBIÇÃO ABSOLUTA: NUNCA USE EMOJIS EM HIPÓTESE ALGUMA! 🚫
 
@@ -922,18 +940,23 @@ ${conversationAnalysis.recentUserQuestions.length > 0 ? `- Últimas perguntas do
 
 🎯 REGRAS DE NATURALIDADE CONVERSACIONAL (CRÍTICO):
 
-⚠️ SAUDAÇÃO - Use EXATAMENTE "${appropriateGreeting}":
-   ❌ ERRADO: "bom dia" (se não for a saudação correta)
-   ❌ ERRADO: "boa tarde" (se não for a saudação correta)
-   ✅ CORRETO: "${appropriateGreeting}, passando por aqui vi que vocês vendem carnes"
+⚠️ PRIMEIRA MENSAGEM - Use "${appropriateGreeting}":
+   ✅ CORRETO: "${appropriateGreeting}, vi que vocês atendem nessa região"
+   ❌ ERRADO: "oi, vocês atendem?" (faltou saudação na primeira)
 
-⚠️ MENSAGENS 2-3 (WARM-UP) - Conversa casual ANTES do objetivo:
+⚠️ MENSAGENS 2+ - NÃO use saudação:
+   ✅ CORRETO: "certo, e vcs fazem entrega?"
+   ✅ CORRETO: "legal, quanto fica o frete?"
+   ❌ ERRADO: "boa noite, e vcs fazem entrega?" (saudação repetida)
+   ❌ ERRADO: "bom dia, quanto fica?" (não é primeira mensagem)
+
+⚠️ WARM-UP (mensagens 1-3) - Conversa casual ANTES do objetivo:
    - Faça perguntas genéricas sobre a empresa
    - Demonstre curiosidade sobre coisas não relacionadas ao objetivo
    - Exemplos: "há quanto tempo vocês estão aqui?", "que cheiro gostoso!", "vocês fazem delivery?"
    - AINDA NÃO pergunte sobre seu objetivo principal
 
-⚠️ MENSAGEM 4+ (TRANSIÇÃO E OBJETIVO):
+⚠️ TRANSIÇÃO E OBJETIVO (mensagem 4+):
    - Faça transição natural: "ah, já que to aqui, queria saber..."
    - Só então pergunte sobre o objetivo principal
    - Intercale perguntas do objetivo com comentários casuais
@@ -1056,14 +1079,28 @@ LEMBRE-SE:
         }
       }
 
-      // Validar saudação antes de enviar
+      // Validar/corrigir saudação
       let validatedResponse = finalResponse;
-      const greetingPattern = /^(bom dia|boa tarde|boa noite)/i;
-      const matchedGreeting = finalResponse.match(greetingPattern);
-      
-      if (matchedGreeting && matchedGreeting[0].toLowerCase() !== appropriateGreeting.toLowerCase()) {
-        console.log(`⚠️ [${analysis.id}] Corrigindo saudação incorreta: "${matchedGreeting[0]}" → "${appropriateGreeting}"`);
-        validatedResponse = finalResponse.replace(greetingPattern, appropriateGreeting);
+      const greetingPattern = /^(bom dia|boa tarde|boa noite)[,\s]*/i;
+
+      if (isFirstMessage || isReactivation) {
+        // Se for primeira mensagem, GARANTIR que tem a saudação correta
+        const matchedGreeting = finalResponse.match(greetingPattern);
+        if (matchedGreeting && matchedGreeting[0].toLowerCase().trim().replace(/[,\s]/g, '') !== appropriateGreeting.toLowerCase()) {
+          console.log(`⚠️ [${analysis.id}] Corrigindo saudação incorreta: "${matchedGreeting[0]}" → "${appropriateGreeting}"`);
+          validatedResponse = finalResponse.replace(greetingPattern, appropriateGreeting + ', ');
+        } else if (!matchedGreeting) {
+          console.log(`⚠️ [${analysis.id}] Adicionando saudação faltante na primeira mensagem`);
+          validatedResponse = `${appropriateGreeting}, ${finalResponse}`;
+        }
+      } else {
+        // Se NÃO for primeira mensagem, REMOVER qualquer saudação
+        if (greetingPattern.test(finalResponse)) {
+          console.log(`⚠️ [${analysis.id}] Removendo saudação desnecessária da mensagem #${aiQuestionsCount + 1}`);
+          validatedResponse = finalResponse.replace(greetingPattern, '').trim();
+          // Garantir que a primeira letra fique maiúscula após remover saudação
+          validatedResponse = validatedResponse.charAt(0).toUpperCase() + validatedResponse.slice(1);
+        }
       }
 
       console.log(`🤖 [${analysis.id}] Resposta final: ${validatedResponse.substring(0, 100)}...`);
@@ -1139,6 +1176,9 @@ LEMBRE-SE:
       // NOVO: Atualizar conversation stage e analisar objetivos
       const updatedCasualInteractions = newStage === 'warm_up' ? casualInteractions + 1 : casualInteractions;
       const updatedObjectiveQuestions = newStage === 'objective_focus' ? objectiveQuestionsAsked + 1 : objectiveQuestionsAsked;
+      
+      // Determinar tipo de interação para próxima mensagem
+      const currentInteractionType = isReactivation ? 'reactivation' : 'normal';
 
       // ✅ CORREÇÃO 3: Analisar objetivos ANTES de gerar resposta
       let progressData = metadata.progress || { total_objectives: 0, achieved_objectives: 0, percentage: 0 };
@@ -1257,6 +1297,7 @@ LEMBRE-SE:
         casual_interactions: updatedCasualInteractions,
         objective_questions_asked: updatedObjectiveQuestions,
         total_interactions: totalInteractions + 1,
+        last_interaction_type: currentInteractionType,
         progress: progressData,
         conversation_plan: conversationPlan,
         // Resetar follow-ups quando usuário responde
