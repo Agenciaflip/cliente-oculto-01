@@ -134,6 +134,30 @@ serve(async (req) => {
   }
 });
 
+// ============= FUNÇÃO PARA QUEBRAR MENSAGEM EM CHUNKS =============
+function splitMessageIntoChunks(text: string, maxCharsPerChunk: number = 80): string[] {
+  const chunks: string[] = [];
+  let currentChunk = '';
+  
+  // Dividir por frases (considerando ., !, ?, vírgulas)
+  const sentences = text.split(/([.!?,]\s+)/);
+  
+  for (let i = 0; i < sentences.length; i++) {
+    const sentence = sentences[i];
+    
+    if (currentChunk.length + sentence.length <= maxCharsPerChunk) {
+      currentChunk += sentence;
+    } else {
+      if (currentChunk.trim()) chunks.push(currentChunk.trim());
+      currentChunk = sentence;
+    }
+  }
+  
+  if (currentChunk.trim()) chunks.push(currentChunk.trim());
+  
+  return chunks.filter(c => c.length > 0);
+}
+
 // ============= FUNÇÃO AUXILIAR: SELECIONAR EVOLUTION CREDENTIALS =============
 function getEvolutionCredentials(instanceIdentifier: string) {
   // Reconhecer tanto o gender quanto o nome da instância
@@ -460,11 +484,27 @@ async function processConversation(
     }
 
     if (messagesToProcess.length > 0) {
+      // ⏱️ AGRUPAR: Aguardar 2-3s antes de reivindicar para agrupar mensagens consecutivas
+      console.log(`⏱️ [${analysis.id}] Aguardando 2s para agrupar possíveis mensagens consecutivas...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Re-buscar mensagens não processadas (podem ter chegado mais)
+      const { data: finalPendingMessages } = await supabase
+        .from('conversation_messages')
+        .select('*')
+        .eq('analysis_id', analysis.id)
+        .eq('role', 'user')
+        .eq('metadata->>processed', 'false')
+        .is('metadata->>claimed_by', null)
+        .order('created_at', { ascending: true });
+      
+      const finalMessagesToProcess = finalPendingMessages || messagesToProcess;
+      
       // Atomic claim to avoid duplicate processing
       const runId = crypto.randomUUID();
       const claimedMessages: any[] = [];
       
-      for (const msg of messagesToProcess) {
+      for (const msg of finalMessagesToProcess) {
         const newMeta = { 
           ...(msg.metadata || {}), 
           claimed_by: runId, 
@@ -492,26 +532,29 @@ async function processConversation(
         return { analysis_id: analysis.id, action: 'skipped_already_claimed' };
       }
 
-      console.log(`📦 [${analysis.id}] Reivindicadas ${claimedMessages.length} mensagens (runId=${runId})`);
+      console.log(`📦 [${analysis.id}] Agrupadas e reivindicadas ${claimedMessages.length} mensagens (runId=${runId})`);
 
-      // ⏰ AGUARDAR 30 SEGUNDOS A 3 MINUTOS ANTES DE RESPONDER (parecer humano/natural)
+      // ⏰ UM ÚNICO DELAY para TODAS as mensagens agrupadas (30s a 3min)
       const randomDelayMs = Math.floor(Math.random() * (3 * 60 * 1000 - 30 * 1000) + 30 * 1000);
       const delaySeconds = (randomDelayMs / 1000).toFixed(0);
       const nextResponseAt = new Date(Date.now() + randomDelayMs).toISOString();
       
-      console.log(`⏰ [${analysis.id}] Aguardando ${delaySeconds} segundos antes de responder (parecer natural)...`);
-      console.log(`⏰ Próxima resposta agendada para: ${nextResponseAt} (delay: ${randomDelayMs}ms)`);
+      console.log(`⏰ [${analysis.id}] Aguardando ${delaySeconds}s antes de responder ao grupo de ${claimedMessages.length} mensagens...`);
       
-      // Salvar horário estimado de resposta
-      await supabase
-        .from('conversation_messages')
-        .update({
-          metadata: { 
-            ...claimedMessages[0].metadata, 
-            next_ai_response_at: nextResponseAt 
-          } 
-        })
-        .eq('id', claimedMessages[0].id);
+      // Salvar next_ai_response_at em TODAS as mensagens do grupo
+      for (const msg of claimedMessages) {
+        await supabase
+          .from('conversation_messages')
+          .update({
+            metadata: { 
+              ...msg.metadata, 
+              next_ai_response_at: nextResponseAt,
+              grouped_with: claimedMessages.map(m => m.id),
+              group_size: claimedMessages.length
+            } 
+          })
+          .eq('id', msg.id);
+      }
       
       await new Promise(resolve => setTimeout(resolve, randomDelayMs));
 
@@ -723,21 +766,40 @@ LEMBRE-SE:
 
       console.log(`🤖 [${analysis.id}] Resposta final: ${finalResponse.substring(0, 100)}...`);
 
-      // Enviar mensagem via Evolution
-      await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, finalResponse);
+      // ✂️ QUEBRAR RESPOSTA EM CHUNKS (múltiplas mensagens)
+      const messageChunks = splitMessageIntoChunks(finalResponse, 80);
+      console.log(`📨 [${analysis.id}] Quebrando resposta em ${messageChunks.length} mensagens...`);
 
-      // Salvar mensagem
-      await supabase.from('conversation_messages').insert({
-        analysis_id: analysis.id,
-        role: 'ai',
-        content: finalResponse,
-        metadata: {
-          question_order: nextQuestion?.order || currentQuestionIndex + 1,
-          expected_info: nextQuestion?.expected_info || 'conversa livre',
-          answered_seller_question: hasSellerQuestion || false,
-          conversation_stage: newStage
+      // Enviar cada chunk como mensagem separada com delay
+      for (let i = 0; i < messageChunks.length; i++) {
+        const chunk = messageChunks[i];
+        
+        // Enviar via Evolution
+        await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, chunk);
+        
+        // Salvar no banco
+        await supabase.from('conversation_messages').insert({
+          analysis_id: analysis.id,
+          role: 'ai',
+          content: chunk,
+          metadata: {
+            question_order: nextQuestion?.order || currentQuestionIndex + 1,
+            expected_info: nextQuestion?.expected_info || 'conversa livre',
+            answered_seller_question: hasSellerQuestion || false,
+            conversation_stage: newStage,
+            chunk_index: i,
+            total_chunks: messageChunks.length,
+            is_chunked: messageChunks.length > 1
+          }
+        });
+        
+        // Delay entre chunks (1-3s) exceto no último
+        if (i < messageChunks.length - 1) {
+          const chunkDelayMs = Math.floor(Math.random() * 2000) + 1000; // 1-3s
+          console.log(`⏱️ Aguardando ${(chunkDelayMs/1000).toFixed(1)}s antes do próximo chunk...`);
+          await new Promise(resolve => setTimeout(resolve, chunkDelayMs));
         }
-      });
+      }
 
       // Marcar mensagens como processadas
       for (const msg of claimedMessages) {

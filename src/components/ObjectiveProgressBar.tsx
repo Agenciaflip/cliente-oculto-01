@@ -23,9 +23,16 @@ export const ObjectiveProgressBar = ({
   percentage,
   objectivesStatus = {}
 }: ObjectiveProgressBarProps) => {
-  const objectives = Object.values(objectivesStatus);
+  // Extrair objetivos corretamente (pode vir aninhado)
+  let objectives: ObjectiveStatus[] = [];
+  
+  if (objectivesStatus && typeof objectivesStatus === 'object') {
+    const values = Object.values(objectivesStatus);
+    // Se values[0] tem a estrutura de ObjectiveStatus, usar direto
+    objectives = values.filter(v => v && typeof v === 'object' && 'objective' in v) as ObjectiveStatus[];
+  }
 
-  // Sempre mostrar a barra, mesmo com 0 objetivos (mostrará "Analisando objetivos...")
+  console.log('📊 ObjectiveProgressBar:', { totalObjectives, achievedObjectives, percentage, objectivesCount: objectives.length, objectivesStatus });
 
   // Calcular ângulo para o círculo (tipo FaceID)
   const circumference = 2 * Math.PI * 45; // raio de 45
