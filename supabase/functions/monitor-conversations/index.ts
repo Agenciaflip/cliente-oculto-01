@@ -67,7 +67,7 @@ serve(async (req) => {
     let query = supabase
       .from('analysis_requests')
       .select('*')
-      .eq('status', 'chatting');
+      .in('status', ['chatting', 'pending_follow_up']);
 
     if (specificAnalysisId) {
       query = query.eq('id', specificAnalysisId);
@@ -766,6 +766,9 @@ LEMBRE-SE:
         }
       }
 
+      // Calcular próximo follow-up
+      const nextFollowUpTime = calculateNextFollowUpTime(analysis, 0);
+      
       // NOVO: Resetar follow_ups se usuário respondeu
       const updatedMetadata = {
         ...metadata,
@@ -776,7 +779,7 @@ LEMBRE-SE:
         progress: progressData,
         // Resetar follow-ups quando usuário responde
         follow_ups_sent: 0,
-        next_follow_up_at: null,
+        next_follow_up_at: nextFollowUpTime,
         last_follow_up_at: null
       };
 
@@ -852,10 +855,14 @@ LEMBRE-SE:
 
           const newFollowUpsSent = followUpsSent + 1;
           const nextTime = calculateNextFollowUpTime(analysis, newFollowUpsSent);
+          
+          // Se foi o último follow-up, marcar como completed
+          const newStatus = newFollowUpsSent >= maxFollowUps ? 'completed' : 'pending_follow_up';
 
           await supabase
             .from('analysis_requests')
             .update({
+              status: newStatus,
               last_message_at: new Date().toISOString(),
               metadata: {
                 ...metadata,
@@ -866,7 +873,7 @@ LEMBRE-SE:
             })
             .eq('id', analysis.id);
 
-          console.log(`✅ [${analysis.id}] Follow-up ${newFollowUpsSent}/${maxFollowUps} enviado`);
+          console.log(`✅ [${analysis.id}] Follow-up ${newFollowUpsSent}/${maxFollowUps} enviado (status: ${newStatus})`);
           return { analysis_id: analysis.id, action: 'follow_up_sent', follow_up_number: newFollowUpsSent };
         }
       }
@@ -943,6 +950,50 @@ LEMBRE-SE:
 
       console.log(`✅ [${analysis.id}] Segunda reativação enviada (24h)`);
       return { analysis_id: analysis.id, action: 'reactivation_24h' };
+    }
+
+    // CENÁRIO D: TIMEOUT - Análise ultrapassou tempo máximo
+    const analysisStartTime = new Date(analysis.started_at || analysis.created_at).getTime();
+    const timeoutMillis = analysis.timeout_minutes * 60 * 1000;
+    const expectedEndTime = analysisStartTime + timeoutMillis;
+    const currentTime = new Date().getTime();
+    const isTimeout = currentTime > expectedEndTime;
+    
+    if (isTimeout && analysis.status !== 'completed') {
+      console.log(`⏰ [${analysis.id}] Timeout atingido (${analysis.timeout_minutes} min)`);
+      
+      const metadata = analysis.metadata || {};
+      const followUpsSent = metadata.follow_ups_sent || 0;
+      const maxFollowUps = metadata.max_follow_ups || 3;
+      
+      // Se ainda há follow-ups pendentes, não completar
+      if (followUpsSent < maxFollowUps && lastMessage.role === 'ai') {
+        console.log(`⏳ [${analysis.id}] Timeout mas ${maxFollowUps - followUpsSent} follow-ups pendentes`);
+        
+        await supabase
+          .from('analysis_requests')
+          .update({ 
+            status: 'pending_follow_up',
+            metadata: {
+              ...metadata,
+              timeout_reached: true,
+              timeout_at: new Date().toISOString()
+            }
+          })
+          .eq('id', analysis.id);
+        
+        console.log(`✅ [${analysis.id}] Status: pending_follow_up`);
+        return { analysis_id: analysis.id, action: 'timeout_pending_followup' };
+      } else {
+        // Só completar se follow-ups acabaram ou último foi do usuário
+        await supabase
+          .from('analysis_requests')
+          .update({ status: 'completed', completed_at: new Date().toISOString() })
+          .eq('id', analysis.id);
+        
+        console.log(`✅ [${analysis.id}] Análise marcada como completed por timeout`);
+        return { analysis_id: analysis.id, action: 'timeout_completed' };
+      }
     }
 
     return { analysis_id: analysis.id, action: 'no_action_needed' };

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles, Printer, CalendarIcon, StopCircle } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, AlertCircle, Search, Brain, Send, MessageCircle, CheckCircle2, XCircle, Circle, Sparkles, Printer, CalendarIcon, StopCircle, Clock } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
@@ -454,6 +454,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
       pending: "secondary",
       researching: "default",
       chatting: "default",
+      pending_follow_up: "outline",
       analyzing: "default",
       completed: "outline",
       failed: "destructive",
@@ -463,13 +464,15 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
       pending: "Pendente",
       researching: "Pesquisando",
       chatting: "Conversando",
+      pending_follow_up: "Aguardando Resposta",
       analyzing: "Analisando",
       completed: "Concluída",
       failed: "Falhou",
     };
 
     return (
-      <Badge variant={variants[status] || "default"}>
+      <Badge variant={variants[status] || "default"} className={status === 'pending_follow_up' ? 'bg-yellow-50 border-yellow-300 text-yellow-700' : ''}>
+        {status === 'pending_follow_up' && <Clock className="h-3 w-3 mr-1" />}
         {labels[status] || status}
       </Badge>
     );

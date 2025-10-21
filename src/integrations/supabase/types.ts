@@ -491,6 +491,7 @@ export type Database = {
         | "completed"
         | "failed"
         | "processing"
+        | "pending_follow_up"
       app_role: "admin" | "user"
       persona_type:
         | "interested"
@@ -636,6 +637,7 @@ export const Constants = {
         "completed",
         "failed",
         "processing",
+        "pending_follow_up",
       ],
       app_role: ["admin", "user"],
       persona_type: [

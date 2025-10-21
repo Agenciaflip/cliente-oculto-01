@@ -23,8 +23,10 @@ export const AnalysisTimer = ({ startedAt, timeoutMinutes, status, metadata }: A
 
   useEffect(() => {
     const updateTimer = () => {
-      const now = new Date();
-      const start = new Date(startedAt);
+      // Usar horário de Brasília
+      const nowBrasilia = new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' });
+      const now = new Date(nowBrasilia);
+      const start = new Date(new Date(startedAt).toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
       const elapsed = Math.floor((now.getTime() - start.getTime()) / 1000); // em segundos
       
       const timeoutSeconds = timeoutMinutes * 60;
@@ -59,7 +61,9 @@ export const AnalysisTimer = ({ startedAt, timeoutMinutes, status, metadata }: A
     return "bg-red-500"; // < 30 min
   };
 
-  const expiresAt = new Date(new Date(startedAt).getTime() + timeoutMinutes * 60 * 1000);
+  // Converter para timezone de Brasília
+  const startBrasilia = new Date(new Date(startedAt).toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const expiresAt = new Date(startBrasilia.getTime() + timeoutMinutes * 60 * 1000);
 
   return (
     <div className="space-y-4">
@@ -98,7 +102,7 @@ export const AnalysisTimer = ({ startedAt, timeoutMinutes, status, metadata }: A
           <div className="pt-2 border-t space-y-1 text-sm">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Calendar className="h-4 w-4" />
-              <span>Iniciado: {format(new Date(startedAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
+              <span>Iniciado: {format(startBrasilia, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
               <Calendar className="h-4 w-4" />

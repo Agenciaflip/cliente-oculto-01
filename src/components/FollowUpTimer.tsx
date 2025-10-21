@@ -26,8 +26,10 @@ export const FollowUpTimer = ({
     }
 
     const updateTimer = () => {
-      const now = new Date();
-      const target = new Date(nextFollowUpAt);
+      // Usar horário de Brasília
+      const nowBrasilia = new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' });
+      const now = new Date(nowBrasilia);
+      const target = new Date(new Date(nextFollowUpAt).toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
       const diff = Math.max(0, Math.floor((target.getTime() - now.getTime()) / 1000));
       setTimeRemaining(diff);
     };
