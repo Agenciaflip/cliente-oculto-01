@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LogOut, Plus, Eye, Settings } from "lucide-react";
+import { LogOut, Plus, Eye, Settings, StopCircle } from "lucide-react";
+import { toast } from "sonner";
 
 interface Analysis {
   id: string;
@@ -67,6 +68,28 @@ const Dashboard = () => {
   const handleSignOut = () => {
     logout();
     navigate("/auth");
+  };
+
+  const handleStopAnalysis = async (analysisId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    try {
+      const { error } = await supabase
+        .from('analysis_requests')
+        .update({ 
+          status: 'completed',
+          completion_reason: 'stopped_by_user'
+        })
+        .eq('id', analysisId);
+
+      if (error) throw error;
+
+      toast.success('Análise encerrada com sucesso');
+      loadData();
+    } catch (error) {
+      console.error('Erro ao parar análise:', error);
+      toast.error('Erro ao encerrar análise');
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -240,6 +263,15 @@ const Dashboard = () => {
                     </div>
                     <div className="flex items-center gap-3">
                       {getStatusBadge(analysis.status)}
+                      {analysis.status !== 'completed' && analysis.status !== 'failed' && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={(e) => handleStopAnalysis(analysis.id, e)}
+                        >
+                          <StopCircle className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm">
                         <Eye className="h-4 w-4" />
                       </Button>

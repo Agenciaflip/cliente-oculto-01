@@ -575,7 +575,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                   🟢 Ao vivo
                 </Badge>
               )}
-              {analysis.status === 'chatting' && (
+              {analysis.status !== 'completed' && analysis.status !== 'failed' && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button variant="destructive" className="gap-2">
@@ -587,8 +587,10 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Encerrar análise?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Isso irá finalizar a conversa com o cliente oculto imediatamente. 
-                        A análise será marcada como concluída e você poderá visualizar os resultados.
+                        Isso irá finalizar a análise imediatamente. 
+                        {analysis.status === 'chatting' 
+                          ? 'A conversa será encerrada e você poderá visualizar os resultados.'
+                          : 'A análise será marcada como concluída.'}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
