@@ -1242,6 +1242,12 @@ LEMBRE-SE:
         // Enviar via Evolution
         await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, chunk);
         
+        // Calcular próximo horário de resposta baseado na profundidade
+        const depth = analysis.analysis_depth || 'quick';
+        const config = DEPTH_CONFIG[depth as keyof typeof DEPTH_CONFIG] || DEPTH_CONFIG.quick;
+        const nextResponseDelayMs = Math.floor(Math.random() * (config.maxDelay - config.minDelay)) + config.minDelay;
+        const nextAiResponseAt = new Date(Date.now() + nextResponseDelayMs).toISOString();
+        
         // Salvar no banco
         await supabase.from('conversation_messages').insert({
           analysis_id: analysis.id,
@@ -1258,7 +1264,10 @@ LEMBRE-SE:
             // 🆕 Adicionar informações de idempotência
             group_hash: groupHashHex,
             group_size: claimedMessages.length,
-            grouped_ids: claimedMessages.map((m: any) => m.id)
+            grouped_ids: claimedMessages.map((m: any) => m.id),
+            // 🕐 Próximo horário de resposta da IA
+            next_ai_response_at: i === messageChunks.length - 1 ? nextAiResponseAt : null,
+            processed: true
           }
         });
         
@@ -1495,6 +1504,12 @@ LEMBRE-SE:
 
           await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, followUpMessage);
 
+          // Calcular próximo horário de resposta
+          const depth = analysis.analysis_depth || 'quick';
+          const config = DEPTH_CONFIG[depth as keyof typeof DEPTH_CONFIG] || DEPTH_CONFIG.quick;
+          const nextResponseDelayMs = Math.floor(Math.random() * (config.maxDelay - config.minDelay)) + config.minDelay;
+          const nextAiResponseAt = new Date(Date.now() + nextResponseDelayMs).toISOString();
+
           await supabase.from('conversation_messages').insert({
             analysis_id: analysis.id,
             role: 'ai',
@@ -1503,7 +1518,8 @@ LEMBRE-SE:
               processed: true, 
               is_follow_up: true, 
               follow_up_number: followUpsSent + 1,
-              max_follow_ups: maxFollowUps
+              max_follow_ups: maxFollowUps,
+              next_ai_response_at: nextAiResponseAt
             }
           });
 
@@ -1522,6 +1538,7 @@ LEMBRE-SE:
               metadata: {
                 ...metadata,
                 follow_ups_sent: newFollowUpsSent,
+                max_follow_ups: maxFollowUps,
                 last_follow_up_at: new Date().toISOString(),
                 next_follow_up_at: nextTime
               }

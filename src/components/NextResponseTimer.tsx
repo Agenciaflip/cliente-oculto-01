@@ -13,29 +13,32 @@ export function NextResponseTimer({ messages }: NextResponseTimerProps) {
   const [isWaiting, setIsWaiting] = useState(false);
 
   useEffect(() => {
-    // Procurar pela última mensagem do usuário que ainda não foi processada
-    const lastUserMessage = messages
-      .filter((m) => m.role === "user" && m.metadata?.processed === false)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-
-    // Procurar pela janela mais recente entre TODAS as mensagens do usuário não processadas
-    const pendingUserMessages = messages.filter((m) => m.role === "user" && m.metadata?.processed === false);
-    const futureWindows = pendingUserMessages
-      .map((m) => m.metadata?.next_ai_response_at as string | undefined)
-      .filter((d): d is string => Boolean(d))
-      .map((d) => new Date(d))
-      .filter((d) => d.getTime() > Date.now());
-
-    console.log('🕐 NextResponseTimer: pending=', pendingUserMessages.length, 'future windows=', futureWindows.length);
-
-    if (futureWindows.length === 0) {
-      console.log('🕐 NextResponseTimer: Sem janela futura encontrada, ocultando timer');
+    // Procurar pela última mensagem da IA (não do usuário)
+    const aiMessages = messages.filter((m) => m.role === "ai");
+    
+    if (aiMessages.length === 0) {
       setIsWaiting(false);
       return;
     }
 
-    const nextResponseAt = new Date(Math.max(...futureWindows.map((d) => d.getTime())));
-    console.log('🕐 NextResponseTimer: nextResponseAt =', nextResponseAt);
+    const lastAiMessage = aiMessages[aiMessages.length - 1];
+    const nextResponseAt = lastAiMessage.metadata?.next_ai_response_at;
+
+    if (!nextResponseAt) {
+      console.log('🕐 NextResponseTimer: Sem next_ai_response_at na última mensagem AI');
+      setIsWaiting(false);
+      return;
+    }
+
+    const targetDate = new Date(nextResponseAt);
+    
+    if (targetDate.getTime() <= Date.now()) {
+      console.log('🕐 NextResponseTimer: Janela de resposta já passou');
+      setIsWaiting(false);
+      return;
+    }
+
+    console.log('🕐 NextResponseTimer: Próxima resposta em', targetDate);
     setIsWaiting(true);
 
     const updateTimer = () => {
