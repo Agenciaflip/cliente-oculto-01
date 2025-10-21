@@ -19,8 +19,11 @@ function getGreetingByTime(): string {
   
   const brasiliaHour = parseInt(formatter.format(nowUTC));
   
+  // 5h-11h59: bom dia
   if (brasiliaHour >= 5 && brasiliaHour < 12) return 'bom dia';
+  // 12h-17h59: boa tarde
   if (brasiliaHour >= 12 && brasiliaHour < 18) return 'boa tarde';
+  // 18h-4h59: boa noite
   return 'boa noite';
 }
 
@@ -643,8 +646,13 @@ ${conversationAnalysis.recentUserQuestions.length > 0 ? `- Últimas perguntas do
 🎯 REGRAS DE NATURALIDADE CONVERSACIONAL (CRÍTICO):
 
 ⚠️ PRIMEIRA MENSAGEM - NUNCA seja direto demais:
-   ❌ ERRADO: "bom dia, qual o preço da picanha?"
-   ✅ CORRETO: "bom dia! passando por aqui vi que vocês vendem carnes, é tudo fresco?"
+   ❌ ERRADO: "[saudação], qual o preço da picanha?"
+   ✅ CORRETO: "[saudação]! passando por aqui vi que vocês vendem carnes, é tudo fresco?"
+   
+   IMPORTANTE: Use SEMPRE a saudação contextual: ${appropriateGreeting}
+   - Manhã (5h-11h59): "bom dia"
+   - Tarde (12h-17h59): "boa tarde"  
+   - Noite (18h-4h59): "boa noite"
 
 ⚠️ MENSAGENS 2-3 (WARM-UP) - Conversa casual ANTES do objetivo:
    - Faça perguntas genéricas sobre a empresa
