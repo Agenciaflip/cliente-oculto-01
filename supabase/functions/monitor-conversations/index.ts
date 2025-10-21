@@ -190,6 +190,268 @@ function getEvolutionCredentials(instanceIdentifier: string) {
   };
 }
 
+// ============= INTERFACE DO PLANO DE CONVERSA =============
+interface QuestionStep {
+  order: number;
+  objective: string;
+  approach: string;
+  estimated_messages: number;
+  status?: 'completed' | 'in_progress' | 'pending';
+}
+
+interface AdaptationLog {
+  timestamp: string;
+  reason: string;
+  changes: string;
+}
+
+interface ConversationPlan {
+  created_at: string;
+  last_updated: string;
+  version: number;
+  objectives: string[];
+  strategy: {
+    warm_up_topics: string[];
+    transition_approach: string;
+    question_sequence: QuestionStep[];
+  };
+  adaptation_log: AdaptationLog[];
+  current_phase: 'planning' | 'warm_up' | 'transition' | 'investigation' | 'closing';
+  estimated_total_messages: number;
+  messages_sent?: number;
+}
+
+// ============= FUNÇÃO PARA GERAR PLANO INICIAL =============
+async function generateConversationPlan(
+  analysis: any,
+  openAIKey: string
+): Promise<ConversationPlan> {
+  console.log(`🧠 [${analysis.id}] Gerando plano de conversa com OpenAI...`);
+  
+  const goals = analysis.investigation_goals || '';
+  const segment = analysis.business_segment || 'geral';
+  const phone = analysis.phone_number || '';
+  
+  const prompt = `Você é um planejador estratégico de conversas de cliente oculto.
+
+CONTEXTO:
+- Negócio: ${segment}
+- Telefone: ${phone}
+- Objetivos: ${goals}
+
+TAREFA: Criar um plano completo de conversa dividido em:
+
+1. WARM-UP (2-3 tópicos casuais para iniciar naturalmente)
+2. TRANSIÇÃO (como mudar de assunto casual para investigação)
+3. SEQUÊNCIA DE PERGUNTAS (ordem lógica para alcançar os objetivos)
+
+RESPONDA EM JSON:
+{
+  "warm_up_topics": ["tópico 1", "tópico 2"],
+  "transition_approach": "como fazer a transição",
+  "question_sequence": [
+    {
+      "order": 1,
+      "objective": "descobrir X",
+      "approach": "perguntar de forma Y",
+      "estimated_messages": 2
+    }
+  ],
+  "estimated_total_messages": 10
+}`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: 'Você é um especialista em planejamento de conversas de cliente oculto. Sempre responda em JSON válido.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const planData = JSON.parse(data.choices[0].message.content);
+    
+    const objectives = goals.split(/\n|;/).filter((g: string) => g.trim()).map((g: string) => g.trim());
+    
+    const plan: ConversationPlan = {
+      created_at: new Date().toISOString(),
+      last_updated: new Date().toISOString(),
+      version: 1,
+      objectives,
+      strategy: {
+        warm_up_topics: planData.warm_up_topics || [],
+        transition_approach: planData.transition_approach || '',
+        question_sequence: planData.question_sequence || [],
+      },
+      adaptation_log: [{
+        timestamp: new Date().toISOString(),
+        reason: 'Plano inicial criado',
+        changes: 'Primeira versão do plano estratégico'
+      }],
+      current_phase: 'planning',
+      estimated_total_messages: planData.estimated_total_messages || 10,
+      messages_sent: 0
+    };
+    
+    console.log(`✅ [${analysis.id}] Plano criado: ${plan.strategy.question_sequence.length} objetivos, estimativa ${plan.estimated_total_messages} msgs`);
+    
+    return plan;
+  } catch (error) {
+    console.error(`❌ [${analysis.id}] Erro ao gerar plano:`, error);
+    
+    // Fallback: plano básico
+    const objectives = goals.split(/\n|;/).filter((g: string) => g.trim()).map((g: string) => g.trim());
+    return {
+      created_at: new Date().toISOString(),
+      last_updated: new Date().toISOString(),
+      version: 1,
+      objectives,
+      strategy: {
+        warm_up_topics: ['horário de funcionamento', 'formas de pagamento'],
+        transition_approach: 'Após resposta, perguntar sobre produtos/serviços',
+        question_sequence: objectives.map((obj: string, i: number) => ({
+          order: i + 1,
+          objective: obj,
+          approach: 'Perguntar diretamente mas de forma natural',
+          estimated_messages: 2
+        }))
+      },
+      adaptation_log: [{
+        timestamp: new Date().toISOString(),
+        reason: 'Plano básico (fallback)',
+        changes: 'Criado plano simplificado devido a erro na IA'
+      }],
+      current_phase: 'planning',
+      estimated_total_messages: objectives.length * 2 + 3,
+      messages_sent: 0
+    };
+  }
+}
+
+// ============= FUNÇÃO PARA ADAPTAR PLANO =============
+async function adaptConversationPlan(
+  currentPlan: ConversationPlan,
+  conversationHistory: any[],
+  objectivesProgress: any,
+  openAIKey: string,
+  analysisId: string
+): Promise<ConversationPlan | null> {
+  console.log(`🔄 [${analysisId}] Verificando necessidade de adaptar plano...`);
+  
+  // Só adaptar a cada 5 mensagens ou mudança significativa de progresso
+  const messagesSincePlan = conversationHistory.length - (currentPlan.messages_sent || 0);
+  
+  if (messagesSincePlan < 5) {
+    console.log(`⏭️ [${analysisId}] Sem necessidade de adaptar (apenas ${messagesSincePlan} msgs desde última atualização)`);
+    return null;
+  }
+  
+  // Verificar se houve mudança significativa nos objetivos
+  const currentProgress = objectivesProgress?.percentage || 0;
+  const lastKnownProgress = currentPlan.strategy.question_sequence.filter(q => q.status === 'completed').length / 
+    currentPlan.strategy.question_sequence.length * 100;
+  
+  const progressChange = Math.abs(currentProgress - lastKnownProgress);
+  
+  if (progressChange < 20) {
+    console.log(`⏭️ [${analysisId}] Progresso pouco mudou (${progressChange.toFixed(0)}%), mantendo plano atual`);
+    return null;
+  }
+  
+  console.log(`🧠 [${analysisId}] Adaptando plano (progresso mudou ${progressChange.toFixed(0)}%)...`);
+  
+  const recentMessages = conversationHistory.slice(-10).map(m => 
+    `[${m.role}]: ${m.content}`
+  ).join('\n');
+  
+  const prompt = `Você está adaptando um plano de conversa de cliente oculto.
+
+PLANO ATUAL:
+${JSON.stringify(currentPlan.strategy, null, 2)}
+
+ÚLTIMAS 10 MENSAGENS:
+${recentMessages}
+
+PROGRESSO OBJETIVOS: ${currentProgress}%
+
+TAREFA: Se a conversa desviou do plano ou novos insights surgiram, adapte a estratégia.
+
+RESPONDA EM JSON:
+{
+  "needs_adaptation": true/false,
+  "reason": "por que adaptar ou não",
+  "updated_strategy": { ... mesmo formato do plano atual ... }
+}`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: 'Você é um especialista em adaptar conversas de cliente oculto. Sempre responda em JSON válido.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const adaptData = JSON.parse(data.choices[0].message.content);
+    
+    if (!adaptData.needs_adaptation) {
+      console.log(`✅ [${analysisId}] IA decidiu não adaptar: ${adaptData.reason}`);
+      return null;
+    }
+    
+    const updatedPlan: ConversationPlan = {
+      ...currentPlan,
+      last_updated: new Date().toISOString(),
+      version: currentPlan.version + 1,
+      strategy: adaptData.updated_strategy,
+      adaptation_log: [
+        ...currentPlan.adaptation_log,
+        {
+          timestamp: new Date().toISOString(),
+          reason: adaptData.reason,
+          changes: `Versão ${currentPlan.version} → ${currentPlan.version + 1}`
+        }
+      ],
+      messages_sent: conversationHistory.length
+    };
+    
+    console.log(`✅ [${analysisId}] Plano adaptado para v${updatedPlan.version}: ${adaptData.reason}`);
+    
+    return updatedPlan;
+  } catch (error) {
+    console.error(`❌ [${analysisId}] Erro ao adaptar plano:`, error);
+    return null;
+  }
+}
+
 // ============= FUNÇÕES DE ANÁLISE DE HISTÓRICO =============
 function analyzeConversationHistory(messages: any[]): {
   questionsAsked: string[];
@@ -828,6 +1090,31 @@ LEMBRE-SE:
           .eq('id', msg.id);
       }
 
+      // ============= GERENCIAR/ADAPTAR PLANO DE CONVERSA =============
+      let conversationPlan = metadata.conversation_plan as ConversationPlan | null;
+      
+      // Se não tem plano, criar um
+      if (!conversationPlan && analysis.status === 'chatting') {
+        console.log(`📋 [${analysis.id}] Criando plano inicial de conversa...`);
+        conversationPlan = await generateConversationPlan(analysis, openAIKey);
+        
+        // Salvar plano no metadata
+        await supabase
+          .from('analysis_requests')
+          .update({
+            metadata: {
+              ...metadata,
+              conversation_plan: conversationPlan
+            }
+          })
+          .eq('id', analysis.id);
+      }
+      
+      // Atualizar mensagens enviadas no plano
+      if (conversationPlan) {
+        conversationPlan.messages_sent = aiQuestionsCount;
+      }
+
       // NOVO: Atualizar conversation stage e analisar objetivos
       const updatedCasualInteractions = newStage === 'warm_up' ? casualInteractions + 1 : casualInteractions;
       const updatedObjectiveQuestions = newStage === 'objective_focus' ? objectiveQuestionsAsked + 1 : objectiveQuestionsAsked;
@@ -888,6 +1175,21 @@ LEMBRE-SE:
         }
       }
 
+      // ============= TENTAR ADAPTAR PLANO SE NECESSÁRIO =============
+      if (conversationPlan && progressData) {
+        const adaptedPlan = await adaptConversationPlan(
+          conversationPlan,
+          messages,
+          progressData,
+          openAIKey,
+          analysis.id
+        );
+        
+        if (adaptedPlan) {
+          conversationPlan = adaptedPlan;
+        }
+      }
+
       // Calcular próximo follow-up
       const nextFollowUpTime = calculateNextFollowUpTime(analysis, 0);
       
@@ -899,6 +1201,7 @@ LEMBRE-SE:
         objective_questions_asked: updatedObjectiveQuestions,
         total_interactions: totalInteractions + 1,
         progress: progressData,
+        conversation_plan: conversationPlan,
         // Resetar follow-ups quando usuário responde
         follow_ups_sent: 0,
         next_follow_up_at: nextFollowUpTime,

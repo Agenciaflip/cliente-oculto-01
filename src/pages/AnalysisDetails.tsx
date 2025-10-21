@@ -13,6 +13,7 @@ import { AnalysisTimer } from "@/components/AnalysisTimer";
 import { NextResponseTimer } from "@/components/NextResponseTimer";
 import { FollowUpTimer } from "@/components/FollowUpTimer";
 import { ObjectiveProgressBar } from "@/components/ObjectiveProgressBar";
+import { ConversationPlan } from "@/components/ConversationPlan";
 import { Confetti } from "@/components/Confetti";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -45,6 +46,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [previousPercentage, setPreviousPercentage] = useState(0);
+  const [conversationPlan, setConversationPlan] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const realtimePollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -285,8 +287,13 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
         if (updatedAnalysis) {
           setAnalysis(updatedAnalysis);
           
-          // 🎉 Verificar se objetivos foram concluídos (0 -> 100)
+          // 📋 Atualizar plano de conversa
           const metadata = updatedAnalysis.metadata as any;
+          if (metadata?.conversation_plan) {
+            setConversationPlan(metadata.conversation_plan);
+          }
+          
+          // 🎉 Verificar se objetivos foram concluídos (0 -> 100)
           const currentPercentage = metadata?.progress?.percentage || 0;
           if (previousPercentage < 100 && currentPercentage === 100) {
             console.log('🎉 OBJETIVOS 100% CONCLUÍDOS! Disparando confetes...');
@@ -820,6 +827,16 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
               </Card>
             )}
           </div>
+
+          {/* Plano de Ação da IA */}
+          {(analysis.status === 'chatting' || analysis.status === 'pending_follow_up') && conversationPlan && (
+            <div className="lg:col-span-2">
+              <ConversationPlan 
+                plan={conversationPlan} 
+                currentMessageCount={messages.filter(m => m.role === 'ai').length}
+              />
+            </div>
+          )}
 
           {/* Conversa */}
           <div className="lg:col-span-2">

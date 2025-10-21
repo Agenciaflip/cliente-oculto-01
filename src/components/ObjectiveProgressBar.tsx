@@ -23,16 +23,28 @@ export const ObjectiveProgressBar = ({
   percentage,
   objectivesStatus = {}
 }: ObjectiveProgressBarProps) => {
-  // Extrair objetivos corretamente (pode vir aninhado)
+  // Extrair objetivos corretamente (pode vir aninhado ou como array)
   let objectives: ObjectiveStatus[] = [];
   
   if (objectivesStatus && typeof objectivesStatus === 'object') {
-    const values = Object.values(objectivesStatus);
-    // Se values[0] tem a estrutura de ObjectiveStatus, usar direto
-    objectives = values.filter(v => v && typeof v === 'object' && 'objective' in v) as ObjectiveStatus[];
+    // Se já é um array, usar direto
+    if (Array.isArray(objectivesStatus)) {
+      objectives = objectivesStatus.filter(v => v && typeof v === 'object' && 'objective' in v) as ObjectiveStatus[];
+    } else {
+      // Se é objeto, pegar values
+      const values = Object.values(objectivesStatus);
+      objectives = values.filter(v => v && typeof v === 'object' && 'objective' in v) as ObjectiveStatus[];
+    }
   }
 
-  console.log('📊 ObjectiveProgressBar:', { totalObjectives, achievedObjectives, percentage, objectivesCount: objectives.length, objectivesStatus });
+  console.log('📊 ObjectiveProgressBar:', { 
+    totalObjectives, 
+    achievedObjectives, 
+    percentage, 
+    objectivesCount: objectives.length, 
+    objectivesStatusType: Array.isArray(objectivesStatus) ? 'array' : typeof objectivesStatus,
+    objectivesStatus 
+  });
 
   // Calcular ângulo para o círculo (tipo FaceID)
   const circumference = 2 * Math.PI * 45; // raio de 45
