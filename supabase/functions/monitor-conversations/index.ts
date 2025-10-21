@@ -637,39 +637,65 @@ async function processConversation(
   evolutionKeyFemale: string,
   evolutionInstanceFemale: string
 ) {
-  // Selecionar credenciais - PRIORIZAR evolution_instance do DB
-  const instanceToUse = analysis.evolution_instance || analysis.ai_gender || 'male';
-  console.log(`📡 Usando instância: ${instanceToUse} (evolution_instance: ${analysis.evolution_instance}, ai_gender: ${analysis.ai_gender})`);
-  const evoCredentials = getEvolutionCredentials(instanceToUse);
-  const actualEvolutionUrl = evoCredentials.url!;
-  const actualEvolutionKey = evoCredentials.key!;
-  const actualEvolutionInstance = evoCredentials.instance!;
+  // 🔒 MUTEX: Verificar se conversa já está sendo processada
+  const now = new Date().toISOString();
   
-  console.log(`🔧 [${analysis.id}] Usando Evolution ${actualEvolutionInstance}`);
-  
-  // STRICT MODE: Validar que a instância no DB bate com a que estamos usando
-  if (analysis.evolution_instance && analysis.evolution_instance !== actualEvolutionInstance) {
-    console.error(`❌ MISMATCH CRÍTICO: analysis ${analysis.id} esperava ${analysis.evolution_instance} mas está tentando usar ${actualEvolutionInstance}`);
-    
-    await supabase
-      .from('analysis_requests')
-      .update({ 
-        status: 'failed',
-        metadata: {
-          ...(analysis.metadata || {}),
-          error: 'Instance mismatch detected',
-          expected_instance: analysis.evolution_instance,
-          actual_instance: actualEvolutionInstance,
-          error_timestamp: new Date().toISOString()
+  // Tentar adquirir lock
+  const { data: lockResult } = await supabase
+    .from('analysis_requests')
+    .update({
+      metadata: {
+        ...(analysis.metadata || {}),
+        processing_lock: {
+          run_id: crypto.randomUUID(),
+          until: new Date(Date.now() + 60000).toISOString(),
+          started_at: now
         }
-      })
-      .eq('id', analysis.id);
-    
-    console.log(`🛑 Análise ${analysis.id} pausada por mismatch de instância`);
-    return;
+      }
+    })
+    .eq('id', analysis.id)
+    .or(`metadata->>processing_lock.is.null,metadata->processing_lock->>until.lte.${now}`)
+    .select();
+  
+  if (!lockResult || lockResult.length === 0) {
+    console.log(`🔒 [${analysis.id}] Conversa já está sendo processada por outro worker. Pulando.`);
+    return { analysis_id: analysis.id, action: 'skipped_locked' };
   }
-
+  
+  console.log(`🔓 [${analysis.id}] Lock adquirido, válido por 60s`);
+  
   try {
+    // Selecionar credenciais - PRIORIZAR evolution_instance do DB
+    const instanceToUse = analysis.evolution_instance || analysis.ai_gender || 'male';
+    console.log(`📡 Usando instância: ${instanceToUse} (evolution_instance: ${analysis.evolution_instance}, ai_gender: ${analysis.ai_gender})`);
+    const evoCredentials = getEvolutionCredentials(instanceToUse);
+    const actualEvolutionUrl = evoCredentials.url!;
+    const actualEvolutionKey = evoCredentials.key!;
+    const actualEvolutionInstance = evoCredentials.instance!;
+    
+    console.log(`🔧 [${analysis.id}] Usando Evolution ${actualEvolutionInstance}`);
+    
+    // STRICT MODE: Validar que a instância no DB bate com a que estamos usando
+    if (analysis.evolution_instance && analysis.evolution_instance !== actualEvolutionInstance) {
+      console.error(`❌ MISMATCH CRÍTICO: analysis ${analysis.id} esperava ${analysis.evolution_instance} mas está tentando usar ${actualEvolutionInstance}`);
+      
+      await supabase
+        .from('analysis_requests')
+        .update({ 
+          status: 'failed',
+          metadata: {
+            ...(analysis.metadata || {}),
+            error: 'Instance mismatch detected',
+            expected_instance: analysis.evolution_instance,
+            actual_instance: actualEvolutionInstance,
+            error_timestamp: new Date().toISOString()
+          }
+        })
+        .eq('id', analysis.id);
+      
+      console.log(`🛑 Análise ${analysis.id} pausada por mismatch de instância`);
+      return;
+    }
     // Buscar todas mensagens da conversa
     const { data: messages } = await supabase
       .from('conversation_messages')
@@ -766,12 +792,43 @@ async function processConversation(
     }
 
     if (messagesToProcess.length > 0) {
-      // ⏱️ AGRUPAR: Aguardar 2-3s antes de reivindicar para agrupar mensagens consecutivas
-      console.log(`⏱️ [${analysis.id}] Aguardando 2s para agrupar possíveis mensagens consecutivas...`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 🔍 JANELA DINÂMICA: Verificar se já existe next_ai_response_at ativo
+      let nextResponseAt: string | null = null;
+      let randomDelayMs = 0;
+      let groupRunId = crypto.randomUUID();
       
-      // Re-buscar mensagens não processadas (podem ter chegado mais)
-      const { data: finalPendingMessages } = await supabase
+      // Buscar se já existe next_ai_response_at nas mensagens recentes
+      const { data: existingWindowMessages } = await supabase
+        .from('conversation_messages')
+        .select('metadata')
+        .eq('analysis_id', analysis.id)
+        .eq('role', 'user')
+        .not('metadata->>next_ai_response_at', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      
+      if (existingWindowMessages && existingWindowMessages.length > 0) {
+        const existingNextResponse = existingWindowMessages[0].metadata?.next_ai_response_at;
+        const existingDate = new Date(existingNextResponse);
+        const nowDate = new Date();
+        
+        // Se o next_ai_response_at ainda é futuro, usar ele
+        if (existingDate > nowDate) {
+          nextResponseAt = existingNextResponse;
+          randomDelayMs = existingDate.getTime() - nowDate.getTime();
+          console.log(`⏰ [${analysis.id}] Janela de agrupamento JÁ EXISTE: aguardando até ${nextResponseAt} (${(randomDelayMs/1000).toFixed(0)}s restantes)`);
+        }
+      }
+      
+      // Se não existe janela ativa, criar nova (30s a 3min)
+      if (!nextResponseAt) {
+        randomDelayMs = Math.floor(Math.random() * (3 * 60 * 1000 - 30 * 1000) + 30 * 1000);
+        nextResponseAt = new Date(Date.now() + randomDelayMs).toISOString();
+        console.log(`⏰ [${analysis.id}] NOVA janela de agrupamento: ${(randomDelayMs/1000).toFixed(0)}s até ${nextResponseAt}`);
+      }
+      
+      // 🏷️ MARCAR IMEDIATAMENTE todas mensagens não processadas com next_ai_response_at
+      const { data: messagesToClaim } = await supabase
         .from('conversation_messages')
         .select('*')
         .eq('analysis_id', analysis.id)
@@ -780,65 +837,64 @@ async function processConversation(
         .is('metadata->>claimed_by', null)
         .order('created_at', { ascending: true });
       
-      const finalMessagesToProcess = finalPendingMessages || messagesToProcess;
-      
-      // Atomic claim to avoid duplicate processing
-      const runId = crypto.randomUUID();
-      const claimedMessages: any[] = [];
-      
-      for (const msg of finalMessagesToProcess) {
-        const newMeta = { 
-          ...(msg.metadata || {}), 
-          claimed_by: runId, 
+      // Marcar como claimed e adicionar next_ai_response_at
+      for (const msg of (messagesToClaim || [])) {
+        const newMeta = {
+          ...(msg.metadata || {}),
+          claimed_by: groupRunId,
           claimed_at: new Date().toISOString(),
+          next_ai_response_at: nextResponseAt,
+          initial_group: true,
           claim_attempt: (msg.metadata?.claim_attempt || 0) + 1
         };
         
-        const { data: updated, error } = await supabase
+        await supabase
           .from('conversation_messages')
           .update({ metadata: newMeta })
           .eq('id', msg.id)
           .eq('role', 'user')
           .is('metadata->>claimed_by', null)
-          .eq('metadata->>processed', 'false')
-          .select('id, metadata')
-          .limit(1);
-          
-        if (!error && updated && updated.length > 0) {
-          claimedMessages.push({ ...msg, metadata: updated[0].metadata });
-        }
+          .eq('metadata->>processed', 'false');
       }
-
-      if (claimedMessages.length === 0) {
-        console.log(`⏭️ [${analysis.id}] Mensagens já foram reivindicadas por outro worker. Pulando.`);
-        return { analysis_id: analysis.id, action: 'skipped_already_claimed' };
+      
+      console.log(`🏷️ [${analysis.id}] Marcadas ${messagesToClaim?.length || 0} mensagens com next_ai_response_at=${nextResponseAt}`);
+      
+      // ⏳ AGUARDAR até next_ai_response_at
+      console.log(`⏳ [${analysis.id}] Aguardando ${(randomDelayMs/1000).toFixed(0)}s para coletar TODAS as mensagens da janela...`);
+      await new Promise(resolve => setTimeout(resolve, randomDelayMs));
+      
+      // 📦 COLETAR TODAS as mensagens que chegaram durante a janela
+      const { data: finalGroupedMessages } = await supabase
+        .from('conversation_messages')
+        .select('*')
+        .eq('analysis_id', analysis.id)
+        .eq('role', 'user')
+        .eq('metadata->>processed', 'false')
+        .eq('metadata->>claimed_by', groupRunId)
+        .order('created_at', { ascending: true });
+      
+      if (!finalGroupedMessages || finalGroupedMessages.length === 0) {
+        console.log(`⏭️ [${analysis.id}] Nenhuma mensagem encontrada após janela (já processadas por outro worker)`);
+        return { analysis_id: analysis.id, action: 'skipped_no_messages' };
       }
-
-      console.log(`📦 [${analysis.id}] Agrupadas e reivindicadas ${claimedMessages.length} mensagens (runId=${runId})`);
-
-      // ⏰ UM ÚNICO DELAY para TODAS as mensagens agrupadas (30s a 3min)
-      const randomDelayMs = Math.floor(Math.random() * (3 * 60 * 1000 - 30 * 1000) + 30 * 1000);
-      const delaySeconds = (randomDelayMs / 1000).toFixed(0);
-      const nextResponseAt = new Date(Date.now() + randomDelayMs).toISOString();
       
-      console.log(`⏰ [${analysis.id}] Aguardando ${delaySeconds}s antes de responder ao grupo de ${claimedMessages.length} mensagens...`);
+      const claimedMessages = finalGroupedMessages;
+      console.log(`✅ [${analysis.id}] Coletadas ${claimedMessages.length} mensagens após janela de ${(randomDelayMs/1000).toFixed(0)}s`);
       
-      // Salvar next_ai_response_at em TODAS as mensagens do grupo
+      // Atualizar metadata com informações do grupo final
       for (const msg of claimedMessages) {
         await supabase
           .from('conversation_messages')
           .update({
-            metadata: { 
-              ...msg.metadata, 
-              next_ai_response_at: nextResponseAt,
-              grouped_with: claimedMessages.map(m => m.id),
-              group_size: claimedMessages.length
-            } 
+            metadata: {
+              ...msg.metadata,
+              grouped_with: claimedMessages.map((m: any) => m.id),
+              group_size: claimedMessages.length,
+              final_group: true
+            }
           })
           .eq('id', msg.id);
       }
-      
-      await new Promise(resolve => setTimeout(resolve, randomDelayMs));
 
       // Agrupar conteúdo das mensagens reivindicadas
       const groupedContent = claimedMessages.map((m: any) => m.content).join('\n');
@@ -1113,6 +1169,32 @@ LEMBRE-SE:
 
       console.log(`🤖 [${analysis.id}] Resposta final: ${validatedResponse.substring(0, 100)}...`);
 
+      // 🔐 IDEMPOTÊNCIA: Verificar se já respondemos a este grupo exato
+      const groupHash = claimedMessages.map((m: any) => m.id).sort().join(',');
+      const groupHashBuffer = await crypto.subtle.digest(
+        'SHA-1',
+        new TextEncoder().encode(groupHash)
+      );
+      const groupHashHex = Array.from(new Uint8Array(groupHashBuffer))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      // Verificar se já existe resposta com este group_hash
+      const { data: existingResponse } = await supabase
+        .from('conversation_messages')
+        .select('id')
+        .eq('analysis_id', analysis.id)
+        .eq('role', 'ai')
+        .eq('metadata->>group_hash', groupHashHex)
+        .limit(1);
+
+      if (existingResponse && existingResponse.length > 0) {
+        console.log(`⏭️ [${analysis.id}] Resposta já enviada para este grupo (hash=${groupHashHex.substring(0, 8)}). Pulando.`);
+        return { analysis_id: analysis.id, action: 'skipped_idempotent' };
+      }
+
+      console.log(`✅ [${analysis.id}] Group hash único: ${groupHashHex.substring(0, 8)}... Prosseguindo com resposta.`);
+
       // ✂️ QUEBRAR RESPOSTA EM CHUNKS (máximo 2 linhas)
       const messageChunks = splitMessageIntoChunks(validatedResponse);
       console.log(`📨 [${analysis.id}] Quebrando resposta em ${messageChunks.length} mensagens...`);
@@ -1136,7 +1218,11 @@ LEMBRE-SE:
             conversation_stage: newStage,
             chunk_index: i,
             total_chunks: messageChunks.length,
-            is_chunked: messageChunks.length > 1
+            is_chunked: messageChunks.length > 1,
+            // 🆕 Adicionar informações de idempotência
+            group_hash: groupHashHex,
+            group_size: claimedMessages.length,
+            grouped_ids: claimedMessages.map((m: any) => m.id)
           }
         });
         
@@ -1574,6 +1660,24 @@ LEMBRE-SE:
   } catch (error) {
     console.error(`❌ [${analysis.id}] Erro:`, error);
     throw error;
+  } finally {
+    // 🔓 LIBERAR LOCK ao finalizar
+    try {
+      await supabase
+        .from('analysis_requests')
+        .update({
+          metadata: {
+            ...analysis.metadata,
+            processing_lock: null,
+            last_monitor_at: new Date().toISOString()
+          }
+        })
+        .eq('id', analysis.id);
+      
+      console.log(`🔓 [${analysis.id}] Lock liberado`);
+    } catch (unlockErr) {
+      console.error(`⚠️ [${analysis.id}] Erro ao liberar lock:`, unlockErr);
+    }
   }
 }
 

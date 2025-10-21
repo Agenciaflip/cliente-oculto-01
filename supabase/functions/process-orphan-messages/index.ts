@@ -51,10 +51,61 @@ serve(async (req) => {
     const results = [];
     for (const analysisId of analysisIds) {
       const messagesForAnalysis = orphanMessages.filter((m: any) => m.analysis_id === analysisId);
-      console.log(`🔄 Reprocessando ${messagesForAnalysis.length} mensagens órfãs para análise ${analysisId}`);
+      console.log(`🔄 Verificando ${messagesForAnalysis.length} mensagens órfãs para análise ${analysisId}`);
 
       try {
-        // Invocar monitor-conversations para reprocessar
+        // 🔍 VERIFICAR: Conversa tem lock ativo, cooldown ou janela de agrupamento?
+        const { data: analysisCheck } = await supabase
+          .from('analysis_requests')
+          .select('metadata')
+          .eq('id', analysisId)
+          .single();
+        
+        if (analysisCheck?.metadata) {
+          const metadata = analysisCheck.metadata;
+          const now = new Date();
+          
+          // Verificar lock ativo
+          if (metadata.processing_lock) {
+            const lockUntil = new Date(metadata.processing_lock.until);
+            if (lockUntil > now) {
+              console.log(`🔒 [${analysisId}] Conversa está sendo processada (lock até ${metadata.processing_lock.until}). Pulando.`);
+              results.push({ analysis_id: analysisId, success: false, error: 'conversation_locked' });
+              continue;
+            }
+          }
+          
+          // Verificar cooldown (último monitor foi há menos de 30s)
+          if (metadata.last_monitor_at) {
+            const lastMonitorAt = new Date(metadata.last_monitor_at);
+            const cooldownMs = 30000; // 30s
+            if (now.getTime() - lastMonitorAt.getTime() < cooldownMs) {
+              console.log(`⏰ [${analysisId}] Monitor executado há ${((now.getTime() - lastMonitorAt.getTime())/1000).toFixed(0)}s. Aguardando cooldown. Pulando.`);
+              results.push({ analysis_id: analysisId, success: false, error: 'cooldown_active' });
+              continue;
+            }
+          }
+        }
+        
+        // Verificar next_ai_response_at ativo
+        const { data: activeWindow } = await supabase
+          .from('conversation_messages')
+          .select('metadata')
+          .eq('analysis_id', analysisId)
+          .not('metadata->>next_ai_response_at', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (activeWindow && activeWindow.length > 0) {
+          const nextResponse = activeWindow[0].metadata?.next_ai_response_at;
+          if (nextResponse && new Date(nextResponse) > new Date()) {
+            console.log(`⏳ [${analysisId}] Janela de agrupamento ativa até ${nextResponse}. Pulando.`);
+            results.push({ analysis_id: analysisId, success: false, error: 'grouping_window_active' });
+            continue;
+          }
+        }
+        
+        // ✅ Tudo OK, invocar monitor-conversations
         const { error } = await supabase.functions.invoke('monitor-conversations', {
           body: { analysis_id: analysisId }
         });
