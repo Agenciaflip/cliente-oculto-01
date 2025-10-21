@@ -3,6 +3,37 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getPersonaPrompt } from "../_shared/prompts/personas.ts";
 
+// Função auxiliar para saudação contextual (horário de Brasília)
+function getGreetingByTime(): string {
+  const nowUTC = new Date();
+  
+  // Usar formatToParts para extrair hora com segurança
+  const parts = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: 'numeric',
+    hour12: false
+  }).formatToParts(nowUTC);
+  
+  const hourPart = parts.find(p => p.type === 'hour');
+  const brasiliaHour = hourPart ? parseInt(hourPart.value) : new Date().getHours();
+  
+  console.log(`🕐 [PRIMEIRA MENSAGEM] Horário Brasília: ${brasiliaHour}h`);
+  
+  // 5h-11h59: bom dia
+  if (brasiliaHour >= 5 && brasiliaHour < 12) {
+    console.log(`✅ [PRIMEIRA MENSAGEM] Saudação: bom dia`);
+    return 'bom dia';
+  }
+  // 12h-17h59: boa tarde
+  if (brasiliaHour >= 12 && brasiliaHour < 18) {
+    console.log(`✅ [PRIMEIRA MENSAGEM] Saudação: boa tarde`);
+    return 'boa tarde';
+  }
+  // 18h-4h59: boa noite
+  console.log(`✅ [PRIMEIRA MENSAGEM] Saudação: boa noite`);
+  return 'boa noite';
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -367,6 +398,10 @@ Confirme se o telefone ${pendingAnalysis.target_phone} pertence a essa empresa.
       Math.floor(Math.random() * aiGenderNames[aiGender as keyof typeof aiGenderNames].length)
     ];
 
+    // Calcular saudação apropriada
+    const appropriateGreeting = getGreetingByTime();
+    console.log(`👋 [${pendingAnalysis.id}] Usando saudação: "${appropriateGreeting}"`);
+
     const strategyResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -416,7 +451,12 @@ COMPORTAMENTO:
 - UMA pergunta por vez
 - Reagir emocionalmente antes de perguntar
 - Demonstrar cautela ("primeira vez", "quero ter certeza")
-- Emojis moderados (máximo 2-3 na conversa toda)`
+- Emojis moderados (máximo 2-3 na conversa toda)
+
+⚠️ SAUDAÇÃO CONTEXTUAL OBRIGATÓRIA: "${appropriateGreeting}"
+- A primeira mensagem DEVE começar EXATAMENTE com "${appropriateGreeting}"
+- Não use "bom dia", "boa tarde" ou "boa noite" diferentes dessa saudação
+- Esta é a saudação correta para o horário atual de Brasília`
           },
           {
             role: 'user',
@@ -429,15 +469,15 @@ CONTEXTO:
 - Persona: ${personaDescriptions[pendingAnalysis.persona as keyof typeof personaDescriptions]}
 - Profundidade: ${config.description}
 
-PRIMEIRA MENSAGEM - Exemplos naturais SEM emojis:
-1. "bom dia, vi sobre vocês e fiquei interessado, vocês trabalham com [SERVICO]?"
-2. "boa tarde, um conhecido indicou, como funciona o [SERVICO]?"
-3. "boa noite, to precisando de [PRODUTO], vcs fazem?"
-4. "bom dia, estava pesquisando e achei vocês, pode me ajudar?"
-5. "boa tarde, vcs atendem na região do [BAIRRO]?"
+PRIMEIRA MENSAGEM - DEVE começar com "${appropriateGreeting}":
+1. "${appropriateGreeting}, vi sobre vocês e fiquei interessado, vocês trabalham com [SERVICO]?"
+2. "${appropriateGreeting}, um conhecido indicou, como funciona o [SERVICO]?"
+3. "${appropriateGreeting}, to precisando de [PRODUTO], vcs fazem?"
+4. "${appropriateGreeting}, estava pesquisando e achei vocês, pode me ajudar?"
+5. "${appropriateGreeting}, vcs atendem na região do [BAIRRO]?"
 
 CRITICAL: 
-- SEMPRE começar com saudação contextual (bom dia/boa tarde/boa noite)
+- SEMPRE começar EXATAMENTE com "${appropriateGreeting}"
 - UMA pergunta simples e direta
 - Máximo 2 linhas curtas
 - ZERO emojis

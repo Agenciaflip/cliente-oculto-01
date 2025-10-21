@@ -9,21 +9,32 @@ import { DEPTH_CONFIG, calculateNextFollowUpTime } from "../_shared/config/analy
 
 // Função auxiliar para saudação contextual (horário de Brasília)
 function getGreetingByTime(): string {
-  // Obter data/hora atual em Brasília
   const nowUTC = new Date();
-  const formatter = new Intl.DateTimeFormat('en-US', {
+  
+  // Usar formatToParts para extrair hora com segurança
+  const parts = new Intl.DateTimeFormat('pt-BR', {
     timeZone: 'America/Sao_Paulo',
     hour: 'numeric',
     hour12: false
-  });
+  }).formatToParts(nowUTC);
   
-  const brasiliaHour = parseInt(formatter.format(nowUTC));
+  const hourPart = parts.find(p => p.type === 'hour');
+  const brasiliaHour = hourPart ? parseInt(hourPart.value) : new Date().getHours();
+  
+  console.log(`🕐 Horário Brasília: ${brasiliaHour}h`);
   
   // 5h-11h59: bom dia
-  if (brasiliaHour >= 5 && brasiliaHour < 12) return 'bom dia';
+  if (brasiliaHour >= 5 && brasiliaHour < 12) {
+    console.log(`✅ Saudação: bom dia`);
+    return 'bom dia';
+  }
   // 12h-17h59: boa tarde
-  if (brasiliaHour >= 12 && brasiliaHour < 18) return 'boa tarde';
+  if (brasiliaHour >= 12 && brasiliaHour < 18) {
+    console.log(`✅ Saudação: boa tarde`);
+    return 'boa tarde';
+  }
   // 18h-4h59: boa noite
+  console.log(`✅ Saudação: boa noite`);
   return 'boa noite';
 }
 
@@ -889,7 +900,11 @@ async function processConversation(
       const systemPrompt = `${basePersonaPrompt}
 
 HORÁRIO ATUAL (Brasil): ${currentTime}
-SAUDAÇÃO CONTEXTUAL: ${appropriateGreeting}
+
+⚠️ SAUDAÇÃO CONTEXTUAL OBRIGATÓRIA: "${appropriateGreeting}"
+- Use EXATAMENTE esta saudação: "${appropriateGreeting}"
+- Não use "bom dia", "boa tarde" ou "boa noite" diferente desta
+- Esta é a saudação correta para o horário atual de Brasília
 
 🚫 PROIBIÇÃO ABSOLUTA: NUNCA USE EMOJIS EM HIPÓTESE ALGUMA! 🚫
 
@@ -907,14 +922,10 @@ ${conversationAnalysis.recentUserQuestions.length > 0 ? `- Últimas perguntas do
 
 🎯 REGRAS DE NATURALIDADE CONVERSACIONAL (CRÍTICO):
 
-⚠️ PRIMEIRA MENSAGEM - NUNCA seja direto demais:
-   ❌ ERRADO: "[saudação], qual o preço da picanha?"
-   ✅ CORRETO: "[saudação]! passando por aqui vi que vocês vendem carnes, é tudo fresco?"
-   
-   IMPORTANTE: Use SEMPRE a saudação contextual: ${appropriateGreeting}
-   - Manhã (5h-11h59): "bom dia"
-   - Tarde (12h-17h59): "boa tarde"  
-   - Noite (18h-4h59): "boa noite"
+⚠️ SAUDAÇÃO - Use EXATAMENTE "${appropriateGreeting}":
+   ❌ ERRADO: "bom dia" (se não for a saudação correta)
+   ❌ ERRADO: "boa tarde" (se não for a saudação correta)
+   ✅ CORRETO: "${appropriateGreeting}, passando por aqui vi que vocês vendem carnes"
 
 ⚠️ MENSAGENS 2-3 (WARM-UP) - Conversa casual ANTES do objetivo:
    - Faça perguntas genéricas sobre a empresa
@@ -1045,10 +1056,20 @@ LEMBRE-SE:
         }
       }
 
-      console.log(`🤖 [${analysis.id}] Resposta final: ${finalResponse.substring(0, 100)}...`);
+      // Validar saudação antes de enviar
+      let validatedResponse = finalResponse;
+      const greetingPattern = /^(bom dia|boa tarde|boa noite)/i;
+      const matchedGreeting = finalResponse.match(greetingPattern);
+      
+      if (matchedGreeting && matchedGreeting[0].toLowerCase() !== appropriateGreeting.toLowerCase()) {
+        console.log(`⚠️ [${analysis.id}] Corrigindo saudação incorreta: "${matchedGreeting[0]}" → "${appropriateGreeting}"`);
+        validatedResponse = finalResponse.replace(greetingPattern, appropriateGreeting);
+      }
+
+      console.log(`🤖 [${analysis.id}] Resposta final: ${validatedResponse.substring(0, 100)}...`);
 
       // ✂️ QUEBRAR RESPOSTA EM CHUNKS (máximo 2 linhas)
-      const messageChunks = splitMessageIntoChunks(finalResponse);
+      const messageChunks = splitMessageIntoChunks(validatedResponse);
       console.log(`📨 [${analysis.id}] Quebrando resposta em ${messageChunks.length} mensagens...`);
 
       // Enviar cada chunk como mensagem separada com delay
