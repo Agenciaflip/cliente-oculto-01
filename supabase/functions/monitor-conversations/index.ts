@@ -135,25 +135,31 @@ serve(async (req) => {
 });
 
 // ============= FUNÇÃO PARA QUEBRAR MENSAGEM EM CHUNKS =============
-function splitMessageIntoChunks(text: string, maxCharsPerChunk: number = 80): string[] {
+function splitMessageIntoChunks(text: string): string[] {
   const chunks: string[] = [];
-  let currentChunk = '';
   
-  // Dividir por frases (considerando ., !, ?, vírgulas)
+  // Se a mensagem é curta (até 160 chars), enviar como 1 linha
+  if (text.length <= 160) {
+    return [text];
+  }
+  
+  // Se é longa, quebrar em máximo 2 linhas
   const sentences = text.split(/([.!?,]\s+)/);
+  let firstLine = '';
+  let secondLine = '';
   
   for (let i = 0; i < sentences.length; i++) {
     const sentence = sentences[i];
     
-    if (currentChunk.length + sentence.length <= maxCharsPerChunk) {
-      currentChunk += sentence;
+    if (firstLine.length === 0 || (firstLine.length + sentence.length <= 160)) {
+      firstLine += sentence;
     } else {
-      if (currentChunk.trim()) chunks.push(currentChunk.trim());
-      currentChunk = sentence;
+      secondLine += sentence;
     }
   }
   
-  if (currentChunk.trim()) chunks.push(currentChunk.trim());
+  if (firstLine.trim()) chunks.push(firstLine.trim());
+  if (secondLine.trim()) chunks.push(secondLine.trim());
   
   return chunks.filter(c => c.length > 0);
 }
@@ -699,13 +705,18 @@ Exemplo de formato:
 "[resposta curta à pergunta do vendedor], [sua pergunta]"
 ` : `
 TAREFA: ${nextQuestion?.expected_info || 'Continue a conversa de forma natural'}
-Faça UMA pergunta objetiva e natural.
+
+⚠️ REGRA CRÍTICA DE PERGUNTAS:
+- Faça APENAS 1 pergunta por mensagem (máximo 2 se for extremamente necessário)
+- Nunca faça 3 ou mais perguntas de uma vez
+- Deixe o vendedor responder antes de fazer a próxima pergunta
 `}
 
 LEMBRE-SE:
 - ZERO emojis
 - Linguagem coloquial brasileira (vcs, pra, tá, né)
-- Máximo 2-3 linhas
+- Mensagens curtas (1-2 linhas no máximo)
+- Apenas 1 pergunta por vez
 - Tom casual mas educado`;
 
       // Chamar OpenAI GPT-4o
@@ -766,8 +777,8 @@ LEMBRE-SE:
 
       console.log(`🤖 [${analysis.id}] Resposta final: ${finalResponse.substring(0, 100)}...`);
 
-      // ✂️ QUEBRAR RESPOSTA EM CHUNKS (múltiplas mensagens)
-      const messageChunks = splitMessageIntoChunks(finalResponse, 80);
+      // ✂️ QUEBRAR RESPOSTA EM CHUNKS (máximo 2 linhas)
+      const messageChunks = splitMessageIntoChunks(finalResponse);
       console.log(`📨 [${analysis.id}] Quebrando resposta em ${messageChunks.length} mensagens...`);
 
       // Enviar cada chunk como mensagem separada com delay
@@ -830,6 +841,39 @@ LEMBRE-SE:
               allMessages.data,
               openAIKey
             );
+            
+            // 🎉 SE OBJETIVOS 100% CONCLUÍDOS, DESPEDIR E ENCERRAR
+            if (progressData.percentage === 100) {
+              console.log(`🎉 [${analysis.id}] OBJETIVOS 100% CONCLUÍDOS! Encerrando conversa...`);
+              
+              // Mensagem de despedida natural
+              const farewellMessage = 'beleza, muito obrigado pela atenção! até mais';
+              await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, farewellMessage);
+              
+              await supabase.from('conversation_messages').insert({
+                analysis_id: analysis.id,
+                role: 'ai',
+                content: farewellMessage,
+                metadata: { is_farewell: true, objectives_completed: true }
+              });
+              
+              // Encerrar análise
+              await supabase
+                .from('analysis_requests')
+                .update({ 
+                  status: 'completed',
+                  completed_at: new Date().toISOString(),
+                  metadata: {
+                    ...metadata,
+                    progress: progressData,
+                    completion_reason: 'objectives_achieved'
+                  }
+                })
+                .eq('id', analysis.id);
+              
+              console.log(`✅ [${analysis.id}] Análise encerrada - objetivos alcançados!`);
+              return { analysis_id: analysis.id, action: 'completed_objectives', percentage: 100 };
+            }
           }
         } catch (err) {
           console.error(`⚠️ Erro ao analisar objetivos:`, err);

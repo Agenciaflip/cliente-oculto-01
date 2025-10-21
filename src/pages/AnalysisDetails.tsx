@@ -13,6 +13,7 @@ import { AnalysisTimer } from "@/components/AnalysisTimer";
 import { NextResponseTimer } from "@/components/NextResponseTimer";
 import { FollowUpTimer } from "@/components/FollowUpTimer";
 import { ObjectiveProgressBar } from "@/components/ObjectiveProgressBar";
+import { Confetti } from "@/components/Confetti";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -42,8 +43,11 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
   const [generatingSales, setGeneratingSales] = useState(false);
   const [companyLogo, setCompanyLogo] = useState<string>("");
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [previousPercentage, setPreviousPercentage] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const realtimePollingRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!id) {
@@ -256,8 +260,51 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
+      if (realtimePollingRef.current) {
+        clearInterval(realtimePollingRef.current);
+      }
     };
   }, [id, navigate]);
+
+  // 🔄 ATUALIZAÇÃO EM TEMPO REAL (a cada 2s)
+  useEffect(() => {
+    if (!id || !analysis || (analysis.status !== 'chatting' && analysis.status !== 'pending_follow_up')) {
+      return;
+    }
+
+    console.log("🔄 Iniciando atualização em tempo real (2s)");
+    
+    realtimePollingRef.current = setInterval(async () => {
+      try {
+        const { data: updatedAnalysis } = await supabase
+          .from("analysis_requests")
+          .select("*")
+          .eq("id", id)
+          .single();
+
+        if (updatedAnalysis) {
+          setAnalysis(updatedAnalysis);
+          
+          // 🎉 Verificar se objetivos foram concluídos (0 -> 100)
+          const metadata = updatedAnalysis.metadata as any;
+          const currentPercentage = metadata?.progress?.percentage || 0;
+          if (previousPercentage < 100 && currentPercentage === 100) {
+            console.log('🎉 OBJETIVOS 100% CONCLUÍDOS! Disparando confetes...');
+            setShowConfetti(true);
+          }
+          setPreviousPercentage(currentPercentage);
+        }
+      } catch (error) {
+        console.error('Erro ao atualizar análise:', error);
+      }
+    }, 2000);
+
+    return () => {
+      if (realtimePollingRef.current) {
+        clearInterval(realtimePollingRef.current);
+      }
+    };
+  }, [id, analysis?.status, previousPercentage]);
 
   // Polling como fallback (aumentado para 10s)
   useEffect(() => {
@@ -656,6 +703,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
               percentage={analysis.metadata?.progress?.percentage || 0}
               objectivesStatus={analysis.metadata?.progress?.objectives_status || {}}
             />
+            <Confetti trigger={showConfetti} onComplete={() => setShowConfetti(false)} />
           </div>
         )}
 
@@ -671,59 +719,6 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           </div>
         )}
 
-        {/* 🎯 NOVO: Card de Progresso Visual */}
-        {(analysis.status === 'pending' || analysis.status === 'processing' || analysis.status === 'chatting') && (
-          <Card className="mb-6 shadow-medium border-primary/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                Progresso da Análise
-              </CardTitle>
-              <CardDescription>
-                Acompanhe cada etapa do processamento em tempo real
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              
-              {/* Etapa 1: Pesquisa Perplexity */}
-              <ProcessingStage
-                icon={<Search />}
-                title="Pesquisando empresa"
-                description="Coletando informações sobre o concorrente"
-                status={getStageStatus('researching', analysis.processing_stage || 'awaiting_research')}
-                isActive={analysis.processing_stage === 'researching'}
-              />
-              
-              {/* Etapa 2: Estratégia OpenAI */}
-              <ProcessingStage
-                icon={<Brain />}
-                title="Gerando estratégia"
-                description="Criando perguntas personalizadas"
-                status={getStageStatus('generating_strategy', analysis.processing_stage || 'awaiting_research')}
-                isActive={analysis.processing_stage === 'generating_strategy'}
-              />
-              
-              {/* Etapa 3: Enviando Mensagem */}
-              <ProcessingStage
-                icon={<Send />}
-                title="Enviando mensagem"
-                description="Iniciando conversa no WhatsApp"
-                status={getStageStatus('sending', analysis.processing_stage || 'awaiting_research')}
-                isActive={analysis.processing_stage === 'sending'}
-              />
-              
-              {/* Etapa 4: Conversando */}
-              <ProcessingStage
-                icon={<MessageCircle />}
-                title="Conversando"
-                description="Cliente oculto está coletando dados"
-                status={getStageStatus('chatting', analysis.processing_stage || 'awaiting_research')}
-                isActive={analysis.processing_stage === 'chatting'}
-              />
-              
-            </CardContent>
-          </Card>
-        )}
 
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Info da Análise */}
