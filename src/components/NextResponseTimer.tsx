@@ -12,62 +12,45 @@ interface NextResponseTimerProps {
 export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResponseTimerProps) {
   const [timeRemaining, setTimeRemaining] = useState<string>("");
   const [isWaiting, setIsWaiting] = useState(false);
-  const [isApprox, setIsApprox] = useState(false);
   const [showRespondingNow, setShowRespondingNow] = useState(false);
 
   useEffect(() => {
-    // Procurar por next_ai_response_at em QUALQUER mensagem (user ou ai)
-    // e cair para análise.metadata.next_ai_response_at se necessário
     const now = Date.now();
 
-    // Coletar todas as mensagens com next_ai_response_at no futuro
-    const candidatesWithFutureWindow = messages
-      .map((msg) => ({
-        message: msg,
-        nextResponseAt: msg.metadata?.next_ai_response_at as string | undefined,
-      }))
-      .filter((c) => {
-        if (!c.nextResponseAt) return false;
-        const targetDate = new Date(c.nextResponseAt);
-        return targetDate.getTime() > now;
-      })
-      .sort((a, b) => {
-        // Ordenar por próximo tempo (menor diferença para o futuro)
-        const timeA = new Date(a.nextResponseAt!).getTime();
-        const timeB = new Date(b.nextResponseAt!).getTime();
-        return timeA - timeB;
-      });
-
+    // Buscar next_ai_response_at prioritariamente do metadata da análise
     let targetDate: Date | null = null;
-    let isEstimated = false;
-
-    if (candidatesWithFutureWindow.length > 0) {
-      const selectedCandidate = candidatesWithFutureWindow[0];
-      targetDate = new Date(selectedCandidate.nextResponseAt!);
-      console.log('🕐 NextResponseTimer: Próxima resposta em', targetDate,
-        'de mensagem', selectedCandidate.message.id,
-        'role:', selectedCandidate.message.role);
-    } else if (analysisNextResponseAt) {
+    
+    if (analysisNextResponseAt) {
       const candidate = new Date(analysisNextResponseAt);
       if (candidate.getTime() > now) {
         targetDate = candidate;
         console.log('🕐 NextResponseTimer: Usando análise.metadata.next_ai_response_at', targetDate);
       }
-    } else {
-      // FALLBACK: Estimar baseado na última mensagem do usuário não processada
-      const unprocessedUserMsgs = messages.filter(
-        m => m.role === 'user' && m.metadata?.processed === false
-      );
-      
-      if (unprocessedUserMsgs.length > 0) {
-        const lastUserMsg = unprocessedUserMsgs[unprocessedUserMsgs.length - 1];
-        const estimatedTime = new Date(new Date(lastUserMsg.created_at).getTime() + 2 * 60 * 1000);
-        
-        if (estimatedTime.getTime() > now) {
-          targetDate = estimatedTime;
-          isEstimated = true;
-          console.log('🕐 NextResponseTimer: Fallback estimado de 2min a partir de', lastUserMsg.created_at);
-        }
+    }
+    
+    // Se não encontrou na análise, buscar nas mensagens
+    if (!targetDate) {
+      const candidatesWithFutureWindow = messages
+        .map((msg) => ({
+          message: msg,
+          nextResponseAt: msg.metadata?.next_ai_response_at as string | undefined,
+        }))
+        .filter((c) => {
+          if (!c.nextResponseAt) return false;
+          const targetDate = new Date(c.nextResponseAt);
+          return targetDate.getTime() > now;
+        })
+        .sort((a, b) => {
+          const timeA = new Date(a.nextResponseAt!).getTime();
+          const timeB = new Date(b.nextResponseAt!).getTime();
+          return timeA - timeB;
+        });
+
+      if (candidatesWithFutureWindow.length > 0) {
+        const selectedCandidate = candidatesWithFutureWindow[0];
+        targetDate = new Date(selectedCandidate.nextResponseAt!);
+        console.log('🕐 NextResponseTimer: Próxima resposta em', targetDate,
+          'de mensagem', selectedCandidate.message.id);
       }
     }
 
@@ -79,7 +62,6 @@ export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResp
     }
 
     setIsWaiting(true);
-    setIsApprox(isEstimated);
     setShowRespondingNow(false);
 
     const updateTimer = () => {
@@ -89,7 +71,6 @@ export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResp
       if (diff <= 0) {
         setTimeRemaining('Respondendo agora...');
         setShowRespondingNow(true);
-        // Manter visível por 15s
         setTimeout(() => {
           setIsWaiting(false);
           setShowRespondingNow(false);
@@ -102,9 +83,9 @@ export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResp
       const remainingSeconds = seconds % 60;
 
       if (minutes > 0) {
-        setTimeRemaining(`em ${isEstimated ? '~' : ''}${minutes}min ${remainingSeconds}s`);
+        setTimeRemaining(`em ${minutes}min ${remainingSeconds}s`);
       } else {
-        setTimeRemaining(`em ${isEstimated ? '~' : ''}${remainingSeconds}s`);
+        setTimeRemaining(`em ${remainingSeconds}s`);
       }
     };
 
@@ -128,7 +109,6 @@ export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResp
         )}
         <span className="text-muted-foreground">
           Próxima resposta do agente: <span className="font-medium text-foreground">{timeRemaining}</span>
-          {isApprox && !showRespondingNow && <span className="text-xs ml-1 opacity-70">(estimado)</span>}
         </span>
       </div>
     </Card>

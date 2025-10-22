@@ -843,9 +843,10 @@ async function processConversation(
       messagesToProcess.push(msg);
     }
 
-    // ============= PASSO 4: CRIAR NOVA JANELA SE NECESSÁRIO =============
+    // ============= PASSO 4: CRIAR NOVA JANELA SE NECESSÁRIO (10s - 2min) =============
     if (!activeWindowNextResponseAt && messagesToProcess.length > 0) {
-      const randomDelayMs = Math.floor(Math.random() * (3 * 60 * 1000 - 30 * 1000) + 30 * 1000);
+      // Tempo aleatório entre 10 segundos (10.000ms) e 2 minutos (120.000ms)
+      const randomDelayMs = Math.floor(Math.random() * (120000 - 10000) + 10000);
       const nextResponseAt = new Date(Date.now() + randomDelayMs).toISOString();
       console.log(`⏰ [${analysis.id}] NOVA janela criada: ${(randomDelayMs/1000).toFixed(0)}s até ${nextResponseAt}`);
       
@@ -864,12 +865,12 @@ async function processConversation(
           .eq('id', msg.id);
       }
       
-      // Salvar na análise para o frontend
+      // Salvar na análise para o frontend (CRÍTICO para o timer aparecer)
       await supabase.from('analysis_requests').update({
         metadata: {
           ...(analysis.metadata || {}),
           next_ai_response_at: nextResponseAt,
-          next_ai_response_source: 'created_window',
+          next_ai_response_source: 'user_message_received',
           next_ai_response_created_at: now.toISOString()
         }
       }).eq('id', analysis.id);
