@@ -1507,20 +1507,20 @@ LEMBRE-SE:
       return { analysis_id: analysis.id, action: 'responded', grouped: claimedMessages.length };
     }
 
-    // CENÁRIO B: Sistema de Follow-up (3 tentativas progressivas)
+    // CENÁRIO B: Sistema de Follow-up (FIXO: 3 tentativas com delays de 20min, 40min, 1h)
     if (lastMessage.role === 'ai') {
       const metadata = analysis.metadata || {};
       const followUpsSent = metadata.follow_ups_sent || 0;
-      const depth = analysis.analysis_depth || 'quick';
-      const config = DEPTH_CONFIG[depth as keyof typeof DEPTH_CONFIG] || DEPTH_CONFIG.quick;
-      const maxFollowUps = config.maxFollowUps || 3;
+      const maxFollowUps = 3; // Sempre 3 tentativas
+      const FOLLOW_UP_DELAYS = [20, 40, 60]; // minutos
       const nextFollowUpAt = metadata.next_follow_up_at;
 
       // Se ainda há tentativas e chegou o horário
       if (followUpsSent < maxFollowUps) {
         // Se não tem próximo follow-up agendado, agendar o primeiro
         if (!nextFollowUpAt) {
-          const nextTime = calculateNextFollowUpTime(analysis, followUpsSent);
+          const delayMinutes = FOLLOW_UP_DELAYS[followUpsSent];
+          const nextTime = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
           
           await supabase
             .from('analysis_requests')
@@ -1534,7 +1534,7 @@ LEMBRE-SE:
             })
             .eq('id', analysis.id);
 
-          console.log(`⏰ [${analysis.id}] Follow-up ${followUpsSent + 1}/${maxFollowUps} agendado para: ${nextTime}`);
+          console.log(`⏰ [${analysis.id}] Follow-up ${followUpsSent + 1}/${maxFollowUps} agendado para: ${nextTime} (+${delayMinutes}min)`);
         }
         // Se chegou o horário do follow-up
         else if (new Date() >= new Date(nextFollowUpAt)) {
@@ -1571,7 +1571,13 @@ LEMBRE-SE:
           });
 
           const newFollowUpsSent = followUpsSent + 1;
-          const nextTime = calculateNextFollowUpTime(analysis, newFollowUpsSent);
+          
+          // Calcular próximo follow-up se ainda não atingiu 3
+          let nextTime = null;
+          if (newFollowUpsSent < maxFollowUps) {
+            const delayMinutes = FOLLOW_UP_DELAYS[newFollowUpsSent];
+            nextTime = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
+          }
           
           // Se foi o último follow-up, marcar como completed
           const newStatus = newFollowUpsSent >= maxFollowUps ? 'completed' : 'pending_follow_up';
@@ -1711,47 +1717,50 @@ LEMBRE-SE:
       return { analysis_id: analysis.id, action: 'reactivation_24h' };
     }
 
-    // CENÁRIO D: TIMEOUT - Análise ultrapassou tempo máximo
+    // CENÁRIO D: TIMEOUT - Análise com DURAÇÃO FIXA DE 2 HORAS
     const analysisStartTime = new Date(analysis.started_at || analysis.created_at).getTime();
-    const timeoutMillis = analysis.timeout_minutes * 60 * 1000;
-    const expectedEndTime = analysisStartTime + timeoutMillis;
+    const FIXED_DURATION_MS = 2 * 60 * 60 * 1000; // 2 horas fixas
+    const expectedEndTime = analysisStartTime + FIXED_DURATION_MS;
     const currentTime = new Date().getTime();
     const isTimeout = currentTime > expectedEndTime;
     
     if (isTimeout && analysis.status !== 'completed') {
-      console.log(`⏰ [${analysis.id}] Timeout atingido (${analysis.timeout_minutes} min)`);
+      console.log(`⏰ [${analysis.id}] Timeout atingido (2 horas)`);
       
       const metadata = analysis.metadata || {};
       const followUpsSent = metadata.follow_ups_sent || 0;
-      const maxFollowUps = metadata.max_follow_ups || 3;
+      const maxFollowUps = 3; // Sempre 3 tentativas
       
-      // Se ainda há follow-ups pendentes, não completar
+      // Se ainda há follow-ups pendentes E última mensagem foi da IA, manter ativo
       if (followUpsSent < maxFollowUps && lastMessage.role === 'ai') {
-        console.log(`⏳ [${analysis.id}] Timeout mas ${maxFollowUps - followUpsSent} follow-ups pendentes`);
-        
+        console.log(`⏳ [${analysis.id}] Dentro de 2h mas ${maxFollowUps - followUpsSent} follow-ups pendentes`);
+        return { analysis_id: analysis.id, action: 'waiting_followups' };
+      } else {
+        // Após 2h E follow-ups completos OU última mensagem foi do usuário, completar
         await supabase
           .from('analysis_requests')
           .update({ 
-            status: 'pending_follow_up',
+            status: 'completed', 
+            completed_at: new Date().toISOString(),
             metadata: {
               ...metadata,
-              timeout_reached: true,
-              timeout_at: new Date().toISOString()
+              completion_reason: 'timeout_2h'
             }
           })
           .eq('id', analysis.id);
         
-        console.log(`✅ [${analysis.id}] Status: pending_follow_up`);
-        return { analysis_id: analysis.id, action: 'timeout_pending_followup' };
-      } else {
-        // Só completar se follow-ups acabaram ou último foi do usuário
-        await supabase
-          .from('analysis_requests')
-          .update({ status: 'completed', completed_at: new Date().toISOString() })
-          .eq('id', analysis.id);
+        // Gerar análise de vendas automaticamente
+        try {
+          console.log(`🔍 [${analysis.id}] Iniciando análise de vendas (timeout 2h)...`);
+          await supabase.functions.invoke('analyze-sales-conversation', {
+            body: { analysis_id: analysis.id }
+          });
+        } catch (error) {
+          console.error(`❌ [${analysis.id}] Erro ao gerar análise de vendas:`, error);
+        }
         
-        console.log(`✅ [${analysis.id}] Análise marcada como completed por timeout`);
-        return { analysis_id: analysis.id, action: 'timeout_completed' };
+        console.log(`✅ [${analysis.id}] Análise completada após 2h`);
+        return { analysis_id: analysis.id, action: 'timeout_2h_completed' };
       }
     }
 
