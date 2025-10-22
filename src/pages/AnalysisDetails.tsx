@@ -48,6 +48,7 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
   const [previousPercentage, setPreviousPercentage] = useState(0);
   const [conversationPlan, setConversationPlan] = useState<any>(null);
   const [progress, setProgress] = useState<any>(null);
+  const [unlocking, setUnlocking] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const realtimePollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -450,6 +451,42 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
     }
   };
 
+  const handleForceUnlockNow = async () => {
+    if (!id) return;
+    setUnlocking(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('force-unlock-and-monitor', {
+        body: { analysis_id: id }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Destravado! 🚀',
+        description: 'O monitor foi acionado e a próxima resposta foi agendada em breve.'
+      });
+
+      if (data?.next_ai_response_at) {
+        setAnalysis((prev: any) => ({
+          ...prev,
+          metadata: {
+            ...(prev?.metadata || {}),
+            next_ai_response_at: data.next_ai_response_at,
+          }
+        }));
+      }
+    } catch (err: any) {
+      console.error('Erro ao destravar:', err);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao destravar',
+        description: err?.message || 'Tente novamente em instantes.'
+      });
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
   // Componente de Etapa Individual
   const ProcessingStage = ({ 
     icon, 
@@ -608,6 +645,18 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                 <Badge variant="outline" className="text-green-600 border-green-600">
                   🟢 Ao vivo
                 </Badge>
+              )}
+              {(analysis.status === 'chatting' || analysis.status === 'pending_follow_up') && (
+                <Button variant="outline" onClick={handleForceUnlockNow} disabled={unlocking} className="gap-2">
+                  {unlocking ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Destravando...
+                    </>
+                  ) : (
+                    <>Destravar e responder agora</>
+                  )}
+                </Button>
               )}
               {analysis.status !== 'completed' && analysis.status !== 'failed' && (
                 <AlertDialog>

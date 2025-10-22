@@ -32,3 +32,6 @@ verify_jwt = true
 
 [functions.admin-toggle-role]
 verify_jwt = true
+
+[functions.force-unlock-and-monitor]
+verify_jwt = false
