@@ -161,14 +161,23 @@ serve(async (req) => {
       console.error(`⚠️ INCONSISTÊNCIA: Análise ${activeAnalysis.id} tem ai_gender=female mas evolution_instance=${activeAnalysis.evolution_instance}`);
     }
 
-    // Salvar mensagem do usuário com flag processed: false
+    // Gerar janela de resposta imediata (10-120s)
+    const randomDelaySeconds = Math.floor(Math.random() * 111) + 10; // 10 a 120 segundos
+    const nextAiResponseAt = new Date(Date.now() + randomDelaySeconds * 1000).toISOString();
+    
+    console.log(`⏰ Timer gerado: próxima resposta em ${randomDelaySeconds}s (${nextAiResponseAt})`);
+
+    // Salvar mensagem do usuário com flag processed: false e next_ai_response_at
     const { error: insertError } = await supabase.from('conversation_messages').insert({
       analysis_id: activeAnalysis.id,
       role: 'user',
       content: messageText,
       metadata: { 
         processed: false,
-        timestamp: new Date().toISOString() 
+        timestamp: new Date().toISOString(),
+        next_ai_response_at: nextAiResponseAt,
+        timer_delay_seconds: randomDelaySeconds,
+        timer_created_at: new Date().toISOString()
       }
     });
 
@@ -181,19 +190,32 @@ serve(async (req) => {
       role: 'user',
       content: messageText.substring(0, 50) + '...',
       processed: false,
-      timestamp: new Date().toISOString()
+      next_ai_response_at: nextAiResponseAt,
+      timer_delay_seconds: randomDelaySeconds
     });
+    
+    console.log(`⏰ [${activeAnalysis.id}] Timer criado: ${randomDelaySeconds}s (resposta planejada para ${nextAiResponseAt})`);
 
-    // Atualizar timestamp da última mensagem
+    // Atualizar timestamp da última mensagem E next_ai_response_at na análise para exibir timer
+    const currentMetadata = activeAnalysis.metadata || {};
     const { error: updateError } = await supabase
       .from('analysis_requests')
-      .update({ last_message_at: new Date().toISOString() })
+      .update({ 
+        last_message_at: new Date().toISOString(),
+        metadata: {
+          ...currentMetadata,
+          next_ai_response_at: nextAiResponseAt,
+          next_ai_response_source: 'user_message_received',
+          next_ai_response_created_at: new Date().toISOString(),
+          timer_delay_seconds: randomDelaySeconds
+        }
+      })
       .eq('id', activeAnalysis.id);
 
     if (updateError) {
-      console.error('❌ Erro ao atualizar last_message_at:', updateError);
+      console.error('❌ Erro ao atualizar last_message_at e timer:', updateError);
     } else {
-      console.log(`✅ last_message_at atualizado para ${activeAnalysis.id}`);
+      console.log(`✅ Análise ${activeAnalysis.id} atualizada: last_message_at e timer definido para +${randomDelaySeconds}s`);
     }
 
     console.log(`🚀 Trigger do banco disparará monitor-conversations automaticamente`);

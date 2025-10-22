@@ -84,15 +84,17 @@ serve(async (req) => {
     // 🧹 CLEANUP: Liberar mensagens travadas (claim > 10 minutos)
     await cleanupStuckMessages(supabase);
 
-    // Se tem analysis_id específico, buscar apenas ele
+    // Se tem analysis_id específico, buscar SEM filtrar por status (mais resiliente)
     let query = supabase
       .from('analysis_requests')
-      .select('*')
-      .in('status', ['chatting', 'pending_follow_up']);
+      .select('*');
 
     if (specificAnalysisId) {
       query = query.eq('id', specificAnalysisId);
-      console.log(`🎯 Processando análise específica: ${specificAnalysisId}`);
+      console.log(`🎯 Processando análise específica: ${specificAnalysisId} (ignorando status)`);
+    } else {
+      // Quando não é específico, filtrar por status ativo
+      query = query.in('status', ['chatting', 'pending_follow_up']);
     }
 
     const { data: activeAnalyses } = await query;
@@ -641,26 +643,35 @@ async function processConversation(
   
   console.log(`🔐 [${analysis.id}] Tentando adquirir lock (agora=${now})...`);
   
-  // Tentar adquirir lock
+  // Verificar se lock expirou antes de tentar adquirir
+  const currentMetadata = analysis.metadata || {};
+  const existingLock = currentMetadata.processing_lock;
+  
+  if (existingLock && new Date(existingLock.until) > new Date()) {
+    console.log(`🔒 [${analysis.id}] Lock ativo até: ${existingLock.until}`);
+    return { analysis_id: analysis.id, action: 'skipped_locked' };
+  }
+  
+  // Reaquisição de lock (merge metadata preservando dados importantes)
+  const newLock = {
+    run_id: crypto.randomUUID(),
+    until: new Date(Date.now() + 60000).toISOString(),
+    started_at: now
+  };
+  
   const { data: lockResult } = await supabase
     .from('analysis_requests')
     .update({
       metadata: {
-        ...(analysis.metadata || {}),
-        processing_lock: {
-          run_id: crypto.randomUUID(),
-          until: new Date(Date.now() + 60000).toISOString(),
-          started_at: now
-        }
+        ...currentMetadata,
+        processing_lock: newLock
       }
     })
     .eq('id', analysis.id)
-    .or(`metadata->>processing_lock.is.null,metadata->processing_lock->>until.lte.${now}`)
     .select();
   
   if (!lockResult || lockResult.length === 0) {
-    const existingLock = analysis.metadata?.processing_lock;
-    console.log(`🔒 [${analysis.id}] Conversa já está sendo processada. Lock ativo até: ${existingLock?.until || 'desconhecido'}`);
+    console.log(`🔒 [${analysis.id}] Falha ao adquirir lock`);
     return { analysis_id: analysis.id, action: 'skipped_locked' };
   }
   
@@ -727,12 +738,26 @@ async function processConversation(
 
     const unprocessedList = unprocessedMessages || [];
     const messagesToProcess: any[] = [];
+    
+    // 🚨 ALERTA: Detectar mensagens órfãs sem next_ai_response_at por mais de 2 minutos
+    const orphanMessages = unprocessedList.filter((msg: any) => {
+      const hasNoTimer = !msg.metadata?.next_ai_response_at;
+      const msgAge = now.getTime() - new Date(msg.created_at).getTime();
+      const isOld = msgAge > 120000; // Mais de 2 minutos
+      return hasNoTimer && isOld;
+    });
+    
+    if (orphanMessages.length > 0) {
+      console.error(`🚨 [${analysis.id}] ALERTA: ${orphanMessages.length} mensagens órfãs sem timer há mais de 2min:`, 
+        orphanMessages.map((m: any) => ({ id: m.id, age_seconds: ((now.getTime() - new Date(m.created_at).getTime()) / 1000).toFixed(0) }))
+      );
+    }
 
-    // ============= PASSO 1: IDENTIFICAR JANELA ATIVA PRIMEIRO =============
+    // ============= PASSO 1: IDENTIFICAR JANELA ATIVA E FORÇAR REPROCESSAMENTO SE ATRASADA =============
     let activeWindowNextResponseAt: string | null = null;
     const { data: activeWindowMsgs } = await supabase
       .from('conversation_messages')
-      .select('metadata')
+      .select('id, metadata, created_at')
       .eq('analysis_id', analysis.id)
       .eq('role', 'user')
       .not('metadata->>next_ai_response_at', 'is', null)
@@ -740,21 +765,31 @@ async function processConversation(
       .limit(1);
 
     if (activeWindowMsgs && activeWindowMsgs.length > 0) {
-      const existingNextResponse = activeWindowMsgs[0].metadata?.next_ai_response_at;
+      const msg = activeWindowMsgs[0];
+      const existingNextResponse = msg.metadata?.next_ai_response_at;
       const existingDate = new Date(existingNextResponse);
+      const delay = now.getTime() - existingDate.getTime();
+      
       if (existingDate > now) {
+        // Janela ainda não expirou
         activeWindowNextResponseAt = existingNextResponse;
         console.log(`⏰ [${analysis.id}] Janela ativa detectada: ${activeWindowNextResponseAt}`);
         
-        // Salvar na análise para o frontend
+        // Salvar na análise para o frontend (merge com metadata existente)
+        const currentMeta = analysis.metadata || {};
         await supabase.from('analysis_requests').update({
           metadata: {
-            ...(analysis.metadata || {}),
+            ...currentMeta,
             next_ai_response_at: activeWindowNextResponseAt,
             next_ai_response_source: 'user_message_window',
             next_ai_response_detected_at: new Date().toISOString()
           }
         }).eq('id', analysis.id);
+      } else if (delay > 120000) {
+        // Janela expirou há mais de 2 minutos - FORÇAR REPROCESSAMENTO
+        console.warn(`⚠️ [${analysis.id}] ATRASO DETECTADO: next_ai_response_at venceu há ${(delay/1000).toFixed(0)}s para mensagem ${msg.id}`);
+        console.log(`🔄 [${analysis.id}] Forçando reprocessamento imediato de mensagens atrasadas`);
+        // Continuar o processamento normalmente para enviar resposta
       }
     }
 
@@ -1264,6 +1299,22 @@ LEMBRE-SE:
 
       console.log(`✅ [${analysis.id}] Group hash único: ${groupHashHex.substring(0, 8)}... Prosseguindo com resposta.`);
 
+      // 🧹 LIMPAR next_ai_response_at da análise ANTES de iniciar resposta (timer desaparece com "respondendo agora...")
+      const currentAnalysisMeta = analysis.metadata || {};
+      await supabase
+        .from('analysis_requests')
+        .update({
+          metadata: {
+            ...currentAnalysisMeta,
+            next_ai_response_at: null,
+            next_ai_response_source: null,
+            last_response_started_at: new Date().toISOString()
+          }
+        })
+        .eq('id', analysis.id);
+      
+      console.log(`🧹 [${analysis.id}] Timer limpo - iniciando resposta agora`);
+
       // ✂️ QUEBRAR RESPOSTA EM CHUNKS (máximo 2 linhas)
       const messageChunks = splitMessageIntoChunks(validatedResponse);
       console.log(`📨 [${analysis.id}] Quebrando resposta em ${messageChunks.length} mensagens...`);
@@ -1304,18 +1355,22 @@ LEMBRE-SE:
           }
         });
         
-        // Se é o último chunk, atualizar análise com próximo horário
+        // Se é o último chunk, atualizar análise com próximo horário E logar
         if (i === messageChunks.length - 1) {
+          const mergedMeta = {
+            ...(analysis.metadata || {}),
+            next_ai_response_at: nextAiResponseAt,
+            next_ai_response_source: 'ai_planned',
+            ai_last_group_hash: groupHashHex,
+            ai_last_chunked_total: messageChunks.length,
+            ai_last_chunk_sent_at: new Date().toISOString()
+          };
+          
           await supabase.from('analysis_requests').update({
-            metadata: {
-              ...(analysis.metadata || {}),
-              next_ai_response_at: nextAiResponseAt,
-              next_ai_response_source: 'ai_planned',
-              ai_last_group_hash: groupHashHex,
-              ai_last_chunked_total: messageChunks.length,
-              ai_last_chunk_sent_at: new Date().toISOString()
-            }
+            metadata: mergedMeta
           }).eq('id', analysis.id);
+          
+          console.log(`⏰ [${analysis.id}] Novo timer definido: próxima resposta em ${(nextResponseDelayMs/1000).toFixed(0)}s (${nextAiResponseAt})`);
         }
         
         // Delay entre chunks (1-3s) exceto no último
@@ -1326,13 +1381,22 @@ LEMBRE-SE:
         }
       }
 
-      // Marcar mensagens como processadas
+      // Marcar mensagens como processadas E limpar next_ai_response_at
       for (const msg of claimedMessages) {
         await supabase
           .from('conversation_messages')
-          .update({ metadata: { ...msg.metadata, processed: true } })
+          .update({ 
+            metadata: { 
+              ...msg.metadata, 
+              processed: true,
+              next_ai_response_at: null, // Limpar timer da mensagem
+              processed_at: new Date().toISOString()
+            } 
+          })
           .eq('id', msg.id);
       }
+      
+      console.log(`✅ [${analysis.id}] ${claimedMessages.length} mensagens marcadas como processadas`);
 
       // ============= GERENCIAR/ADAPTAR PLANO DE CONVERSA =============
       let conversationPlan = metadata.conversation_plan as ConversationPlan | null;
@@ -1418,7 +1482,7 @@ LEMBRE-SE:
                 }
               });
               
-              // Encerrar análise
+              // Encerrar análise com completion_reason
               await supabase
                 .from('analysis_requests')
                 .update({ 
@@ -1427,7 +1491,9 @@ LEMBRE-SE:
                   metadata: {
                     ...metadata,
                     progress: progressData,
-                    completion_reason: 'objectives_achieved'
+                    completion_reason: 'objectives_achieved',
+                    next_ai_response_at: null, // Limpar timer
+                    next_ai_response_source: null
                   }
                 })
                 .eq('id', analysis.id);
@@ -1691,7 +1757,14 @@ LEMBRE-SE:
           status: 'completed',
           last_message_at: new Date().toISOString(),
           completed_at: new Date().toISOString(),
-          metadata: { ...metadata, reactivations_sent: 2, last_reactivation_at: new Date().toISOString() }
+          metadata: { 
+            ...metadata, 
+            reactivations_sent: 2, 
+            last_reactivation_at: new Date().toISOString(),
+            completion_reason: 'followups_done',
+            next_ai_response_at: null, // Limpar timer
+            next_ai_response_source: null
+          }
         })
         .eq('id', analysis.id);
 
@@ -1737,15 +1810,20 @@ LEMBRE-SE:
         return { analysis_id: analysis.id, action: 'waiting_followups' };
       } else {
         // Após 2h E follow-ups completos OU última mensagem foi do usuário, completar
+        const completionMetadata = {
+          ...metadata,
+          completion_reason: 'timeout_2h',
+          completed_at: new Date().toISOString(),
+          next_ai_response_at: null, // Limpar timer ao completar
+          next_ai_response_source: null
+        };
+        
         await supabase
           .from('analysis_requests')
           .update({ 
             status: 'completed', 
             completed_at: new Date().toISOString(),
-            metadata: {
-              ...metadata,
-              completion_reason: 'timeout_2h'
-            }
+            metadata: completionMetadata
           })
           .eq('id', analysis.id);
         
@@ -1770,16 +1848,18 @@ LEMBRE-SE:
     console.error(`❌ [${analysis.id}] Erro:`, error);
     throw error;
   } finally {
-    // 🔓 LIBERAR LOCK ao finalizar
+    // 🔓 LIBERAR LOCK ao finalizar (preservar metadata importante)
     try {
+      const finalMetadata = {
+        ...(analysis.metadata || {}),
+        processing_lock: null,
+        last_monitor_at: new Date().toISOString()
+      };
+      
       await supabase
         .from('analysis_requests')
         .update({
-          metadata: {
-            ...analysis.metadata,
-            processing_lock: null,
-            last_monitor_at: new Date().toISOString()
-          }
+          metadata: finalMetadata
         })
         .eq('id', analysis.id);
       
