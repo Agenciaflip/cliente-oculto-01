@@ -1,5 +1,8 @@
 project_id = "ltjnbmvfjjphljcavrmp"
 
+[functions.test-evolution-connectivity]
+verify_jwt = false
+
 [functions.process-analysis]
 verify_jwt = false
 
