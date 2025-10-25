@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
-import { Clock, Loader2 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { Clock, Loader2, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 interface NextResponseTimerProps {
   messages: any[];
   analysisNextResponseAt?: string | null;
-  analysisMetadata?: any; // Para acessar next_follow_up_at
+  analysisMetadata?: any;
 }
 
 export function NextResponseTimer({ messages, analysisNextResponseAt, analysisMetadata }: NextResponseTimerProps) {
@@ -19,60 +17,34 @@ export function NextResponseTimer({ messages, analysisNextResponseAt, analysisMe
   useEffect(() => {
     const now = Date.now();
 
-    // Buscar next_ai_response_at e next_follow_up_at
+    // Buscar última mensagem
+    const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+    const lastMessageRole = lastMessage?.role;
+
     let targetDate: Date | null = null;
     let type: 'response' | 'follow_up' = 'response';
 
-    // Prioridade 1: next_ai_response_at (resposta normal)
-    if (analysisNextResponseAt) {
+    // CENÁRIO 1: Se última mensagem foi do USUÁRIO → mostrar timer de resposta
+    if (lastMessageRole === 'user' && analysisNextResponseAt) {
       const candidate = new Date(analysisNextResponseAt);
       if (candidate.getTime() > now) {
         targetDate = candidate;
         type = 'response';
-        console.log('🕐 NextResponseTimer: Usando next_ai_response_at', targetDate);
       }
     }
 
-    // Prioridade 2: next_follow_up_at (se não tem resposta pendente)
-    if (!targetDate && analysisMetadata?.next_follow_up_at) {
+    // CENÁRIO 2: Se última mensagem foi da IA → mostrar timer de follow-up
+    if (lastMessageRole === 'ai' && analysisMetadata?.next_follow_up_at) {
       const candidate = new Date(analysisMetadata.next_follow_up_at);
       if (candidate.getTime() > now) {
         targetDate = candidate;
         type = 'follow_up';
-        console.log('🕐 NextResponseTimer: Usando next_follow_up_at', targetDate);
       }
     }
 
     setTimerType(type);
-    
-    // Se não encontrou na análise, buscar nas mensagens
-    if (!targetDate) {
-      const candidatesWithFutureWindow = messages
-        .map((msg) => ({
-          message: msg,
-          nextResponseAt: msg.metadata?.next_ai_response_at as string | undefined,
-        }))
-        .filter((c) => {
-          if (!c.nextResponseAt) return false;
-          const targetDate = new Date(c.nextResponseAt);
-          return targetDate.getTime() > now;
-        })
-        .sort((a, b) => {
-          const timeA = new Date(a.nextResponseAt!).getTime();
-          const timeB = new Date(b.nextResponseAt!).getTime();
-          return timeA - timeB;
-        });
-
-      if (candidatesWithFutureWindow.length > 0) {
-        const selectedCandidate = candidatesWithFutureWindow[0];
-        targetDate = new Date(selectedCandidate.nextResponseAt!);
-        console.log('🕐 NextResponseTimer: Próxima resposta em', targetDate,
-          'de mensagem', selectedCandidate.message.id);
-      }
-    }
 
     if (!targetDate) {
-      console.log('🕐 NextResponseTimer: Nenhuma janela de resposta futura encontrada');
       setIsWaiting(false);
       setShowRespondingNow(false);
       return;
@@ -122,21 +94,34 @@ export function NextResponseTimer({ messages, analysisNextResponseAt, analysisMe
     return null;
   }
 
-  const label = timerType === 'follow_up'
-    ? 'Próximo follow-up do agente'
-    : 'Próxima resposta do agente';
+  // Calcular tentativas restantes para follow-up
+  const followUpsSent = analysisMetadata?.follow_ups_sent || 0;
+  const maxFollowUps = analysisMetadata?.max_follow_ups || 3;
+  const remainingAttempts = maxFollowUps - followUpsSent;
+
+  const isFollowUp = timerType === 'follow_up';
 
   return (
-    <Card className="p-3 bg-muted/50 border-primary/20">
+    <Card className={`p-3 ${isFollowUp ? 'border-primary/30 bg-primary/5' : 'bg-muted/50 border-primary/20'}`}>
       <div className="flex items-center gap-2 text-sm">
         {showRespondingNow ? (
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
+        ) : isFollowUp ? (
+          <RefreshCw className="h-4 w-4 text-primary animate-pulse" />
         ) : (
           <Clock className="h-4 w-4 text-muted-foreground" />
         )}
-        <span className="text-muted-foreground">
-          {label}: <span className="font-medium text-foreground">{timeRemaining}</span>
-        </span>
+        <div className="flex-1">
+          <span className="text-muted-foreground">
+            {isFollowUp ? 'Próximo follow-up do agente' : 'Próxima resposta do agente'}:{' '}
+            <span className="font-medium text-foreground">{timeRemaining}</span>
+          </span>
+          {isFollowUp && !showRespondingNow && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Tentativas restantes: {remainingAttempts}/{maxFollowUps}
+            </p>
+          )}
+        </div>
       </div>
     </Card>
   );

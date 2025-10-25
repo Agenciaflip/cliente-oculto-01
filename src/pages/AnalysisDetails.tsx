@@ -11,7 +11,6 @@ import { cn } from "@/lib/utils";
 import { SalesAnalysis } from "@/components/SalesAnalysis";
 import { AnalysisTimer } from "@/components/AnalysisTimer";
 import { NextResponseTimer } from "@/components/NextResponseTimer";
-import { FollowUpTimer } from "@/components/FollowUpTimer";
 import { ConversationPlan } from "@/components/ConversationPlan";
 import { Confetti } from "@/components/Confetti";
 import { format } from "date-fns";
@@ -733,19 +732,6 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
         {showConfetti && (
           <Confetti trigger={showConfetti} onComplete={() => setShowConfetti(false)} />
         )}
-
-        {/* Timer de Follow-up */}
-        {(analysis.status === 'chatting' || analysis.status === 'pending_follow_up') && messages.length > 0 && (
-          <div className="mb-6">
-            <FollowUpTimer
-              followUpsSent={analysis.metadata?.follow_ups_sent || 0}
-              maxFollowUps={analysis.metadata?.max_follow_ups || 3}
-              nextFollowUpAt={analysis.metadata?.next_follow_up_at}
-              lastMessageRole={messages[messages.length - 1]?.role}
-            />
-          </div>
-        )}
-
 
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Info da Análise */}
