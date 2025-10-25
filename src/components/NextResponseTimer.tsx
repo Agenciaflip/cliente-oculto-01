@@ -7,26 +7,43 @@ import { Card } from "@/components/ui/card";
 interface NextResponseTimerProps {
   messages: any[];
   analysisNextResponseAt?: string | null;
+  analysisMetadata?: any; // Para acessar next_follow_up_at
 }
 
-export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResponseTimerProps) {
+export function NextResponseTimer({ messages, analysisNextResponseAt, analysisMetadata }: NextResponseTimerProps) {
   const [timeRemaining, setTimeRemaining] = useState<string>("");
   const [isWaiting, setIsWaiting] = useState(false);
   const [showRespondingNow, setShowRespondingNow] = useState(false);
+  const [timerType, setTimerType] = useState<'response' | 'follow_up'>('response');
 
   useEffect(() => {
     const now = Date.now();
 
-    // Buscar next_ai_response_at prioritariamente do metadata da análise
+    // Buscar next_ai_response_at e next_follow_up_at
     let targetDate: Date | null = null;
-    
+    let type: 'response' | 'follow_up' = 'response';
+
+    // Prioridade 1: next_ai_response_at (resposta normal)
     if (analysisNextResponseAt) {
       const candidate = new Date(analysisNextResponseAt);
       if (candidate.getTime() > now) {
         targetDate = candidate;
-        console.log('🕐 NextResponseTimer: Usando análise.metadata.next_ai_response_at', targetDate);
+        type = 'response';
+        console.log('🕐 NextResponseTimer: Usando next_ai_response_at', targetDate);
       }
     }
+
+    // Prioridade 2: next_follow_up_at (se não tem resposta pendente)
+    if (!targetDate && analysisMetadata?.next_follow_up_at) {
+      const candidate = new Date(analysisMetadata.next_follow_up_at);
+      if (candidate.getTime() > now) {
+        targetDate = candidate;
+        type = 'follow_up';
+        console.log('🕐 NextResponseTimer: Usando next_follow_up_at', targetDate);
+      }
+    }
+
+    setTimerType(type);
     
     // Se não encontrou na análise, buscar nas mensagens
     if (!targetDate) {
@@ -69,7 +86,8 @@ export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResp
       const diff = targetDate!.getTime() - now;
 
       if (diff <= 0) {
-        setTimeRemaining('Respondendo agora...');
+        const message = type === 'follow_up' ? 'Enviando follow-up...' : 'Respondendo agora...';
+        setTimeRemaining(message);
         setShowRespondingNow(true);
         setTimeout(() => {
           setIsWaiting(false);
@@ -80,9 +98,14 @@ export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResp
 
       const seconds = Math.floor(diff / 1000);
       const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
       const remainingSeconds = seconds % 60;
 
-      if (minutes > 0) {
+      // Formato: Xh Ymin ou Ymin Zs ou apenas Zs
+      if (hours > 0) {
+        setTimeRemaining(`em ${hours}h ${remainingMinutes}min`);
+      } else if (minutes > 0) {
         setTimeRemaining(`em ${minutes}min ${remainingSeconds}s`);
       } else {
         setTimeRemaining(`em ${remainingSeconds}s`);
@@ -93,11 +116,15 @@ export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResp
     const interval = setInterval(updateTimer, 1000);
 
     return () => clearInterval(interval);
-  }, [messages, analysisNextResponseAt]);
+  }, [messages, analysisNextResponseAt, analysisMetadata]);
 
   if (!isWaiting) {
     return null;
   }
+
+  const label = timerType === 'follow_up'
+    ? 'Próximo follow-up do agente'
+    : 'Próxima resposta do agente';
 
   return (
     <Card className="p-3 bg-muted/50 border-primary/20">
@@ -108,7 +135,7 @@ export function NextResponseTimer({ messages, analysisNextResponseAt }: NextResp
           <Clock className="h-4 w-4 text-muted-foreground" />
         )}
         <span className="text-muted-foreground">
-          Próxima resposta do agente: <span className="font-medium text-foreground">{timeRemaining}</span>
+          {label}: <span className="font-medium text-foreground">{timeRemaining}</span>
         </span>
       </div>
     </Card>

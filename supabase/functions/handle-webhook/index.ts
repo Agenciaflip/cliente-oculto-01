@@ -161,11 +161,12 @@ serve(async (req) => {
       console.error(`⚠️ INCONSISTÊNCIA: Análise ${activeAnalysis.id} tem ai_gender=female mas evolution_instance=${activeAnalysis.evolution_instance}`);
     }
 
-    // Gerar janela de resposta imediata (10-120s)
-    const randomDelaySeconds = Math.floor(Math.random() * 111) + 10; // 10 a 120 segundos
+    // ⏱️ AGRUPAMENTO: Janela de 10-15s para coletar mensagens seguidas
+    // Permite que vendedor envie múltiplas mensagens e IA responda tudo junto
+    const randomDelaySeconds = Math.floor(Math.random() * 5) + 10; // 10 a 15 segundos
     const nextAiResponseAt = new Date(Date.now() + randomDelaySeconds * 1000).toISOString();
-    
-    console.log(`⏰ Timer gerado: próxima resposta em ${randomDelaySeconds}s (${nextAiResponseAt})`);
+
+    console.log(`⏰ Timer de agrupamento gerado: próxima resposta em ${randomDelaySeconds}s (${nextAiResponseAt})`);
 
     // Salvar mensagem do usuário com flag processed: false e next_ai_response_at
     const { error: insertError } = await supabase.from('conversation_messages').insert({

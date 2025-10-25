@@ -810,6 +810,19 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                     </p>
                   </div>
                 )}
+                {analysis.investigation_goals && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Objetivos da Investigação</p>
+                    <div className="mt-1 space-y-1">
+                      {analysis.investigation_goals.split('\n').filter((g: string) => g.trim()).map((goal: string, index: number) => (
+                        <p key={index} className="font-medium text-sm flex items-start gap-2">
+                          <span className="text-primary">•</span>
+                          <span>{goal.trim()}</span>
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div>
                   <p className="text-sm text-muted-foreground">Criada em</p>
                   <p className="font-medium">
@@ -925,7 +938,11 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
                 </CardDescription>
                 {/* Timer da próxima resposta do agente */}
                 <div className="mt-3">
-                  <NextResponseTimer messages={messages} analysisNextResponseAt={analysis.metadata?.next_ai_response_at} />
+                  <NextResponseTimer
+                    messages={messages}
+                    analysisNextResponseAt={analysis.metadata?.next_ai_response_at}
+                    analysisMetadata={analysis.metadata}
+                  />
                 </div>
               </CardHeader>
               <CardContent>

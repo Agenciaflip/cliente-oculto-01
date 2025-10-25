@@ -4,7 +4,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getPersonaPrompt } from "../_shared/prompts/personas.ts";
 import { getRandomCasualTopic, getRandomTransition } from "../_shared/prompts/casual-topics.ts";
-import { analyzeObjectivesProgress } from "../_shared/utils/objective-analyzer.ts";
+// import { analyzeObjectivesProgress } from "../_shared/utils/objective-analyzer.ts"; // DESABILITADO
 import { DEPTH_CONFIG, calculateNextFollowUpTime } from "../_shared/config/analysis-config.ts";
 import { assignStyleToAnalysis, applyStyleModifier } from "../_shared/config/conversation-styles.ts";
 
@@ -879,12 +879,13 @@ async function processConversation(
       messagesToProcess.push(msg);
     }
 
-    // ============= PASSO 4: CRIAR NOVA JANELA SE NECESSÁRIO (10s - 2min) =============
+    // ============= PASSO 4: CRIAR NOVA JANELA SE NECESSÁRIO (10-15s para agrupar mensagens) =============
     if (!activeWindowNextResponseAt && messagesToProcess.length > 0) {
-      // Tempo aleatório entre 10 segundos (10.000ms) e 2 minutos (120.000ms)
-      const randomDelayMs = Math.floor(Math.random() * (120000 - 10000) + 10000);
+      // ⏱️ AGRUPAMENTO: Tempo de 10-15 segundos para coletar mensagens seguidas
+      // Isso permite que o vendedor envie múltiplas mensagens e a IA responda tudo junto
+      const randomDelayMs = Math.floor(Math.random() * 5000 + 10000); // 10-15 segundos
       const nextResponseAt = new Date(Date.now() + randomDelayMs).toISOString();
-      console.log(`⏰ [${analysis.id}] NOVA janela criada: ${(randomDelayMs/1000).toFixed(0)}s até ${nextResponseAt}`);
+      console.log(`⏰ [${analysis.id}] NOVA janela de agrupamento: ${(randomDelayMs/1000).toFixed(1)}s até ${nextResponseAt}`);
       
       // Marcar TODAS mensagens não processadas (incluindo as que serão claimed)
       for (const msg of messagesToProcess) {
@@ -1479,26 +1480,39 @@ LEMBRE-SE:
       // Determinar tipo de interação para próxima mensagem
       const currentInteractionType = isReactivation ? 'reactivation' : 'normal';
 
-      // ✅ CORREÇÃO 3: Analisar objetivos ANTES de gerar resposta
+      // ⚠️ ANÁLISE DE OBJETIVOS DESABILITADA
       let progressData = metadata.progress || { total_objectives: 0, achieved_objectives: 0, percentage: 0 };
-      
-      if (analysis.investigation_goals && updatedObjectiveQuestions > 0) {
-        try {
-          const allMessages = await supabase
-            .from('conversation_messages')
-            .select('*')
-            .eq('analysis_id', analysis.id)
-            .order('created_at', { ascending: true });
 
-          if (allMessages.data) {
-            progressData = await analyzeObjectivesProgress(
-              analysis.investigation_goals,
-              allMessages.data,
-              openAIKey
-            );
-            
-            // 🎉 SE OBJETIVOS 100% CONCLUÍDOS, DESPEDIR E ENCERRAR **IMEDIATAMENTE**
-            if (progressData.percentage === 100) {
+      // Verificar se deve encerrar por número de mensagens (ao invés de analisar objetivos)
+      const aiMessagesCount = messages.filter((m: any) => m.role === 'ai').length;
+      const shouldFinish = aiMessagesCount >= 8; // Encerra após 8 mensagens da IA
+
+      if (shouldFinish && false) { // Desabilitado: não encerra automaticamente mais
+        // Código comentado - não analisa mais objetivos
+        /*
+        if (analysis.investigation_goals && updatedObjectiveQuestions > 0) {
+          try {
+            const allMessages = await supabase
+              .from('conversation_messages')
+              .select('*')
+              .eq('analysis_id', analysis.id)
+              .order('created_at', { ascending: true });
+
+            if (allMessages.data) {
+              progressData = await analyzeObjectivesProgress(
+                analysis.investigation_goals,
+                allMessages.data,
+                openAIKey
+              );
+            }
+          } catch (err) {
+            console.error(`⚠️ Erro ao analisar objetivos:`, err);
+          }
+        }
+        */
+
+        // Código de encerramento automático também desabilitado
+        if (false) { // DESABILITADO
               console.log(`🎉 [${analysis.id}] OBJETIVOS 100% CONCLUÍDOS! Encerrando conversa...`);
               
               // Marcar mensagens como processadas
@@ -1584,12 +1598,10 @@ LEMBRE-SE:
               
               console.log(`✅ [${analysis.id}] Análise encerrada - objetivos alcançados!`);
               return { analysis_id: analysis.id, action: 'completed_objectives', percentage: 100 };
-            }
-          }
-        } catch (err) {
-          console.error(`⚠️ Erro ao analisar objetivos:`, err);
-        }
-      }
+            } // FIM DO IF FALSE
+          } // FIM DO BLOCO COMENTADO
+        } // FIM DO IF FALSE
+      // Análise de objetivos DESABILITADA - agora só encerra por follow-ups ou timeout
 
       // ============= TENTAR ADAPTAR PLANO SE NECESSÁRIO =============
       if (conversationPlan && progressData) {
