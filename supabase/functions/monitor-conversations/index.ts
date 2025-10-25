@@ -77,7 +77,10 @@ serve(async (req) => {
 
     // Agrupamento agora é controlado pela janela dinâmica (next_ai_response_at)
     if (specificAnalysisId) {
+      console.log(`\n\n========== MONITOR INVOCADO ==========`);
       console.log(`⏰ [${specificAnalysisId}] Processando com janela dinâmica de agrupamento (sem debounce fixo)`);
+      console.log(`📅 Timestamp: ${new Date().toISOString()}`);
+      console.log(`======================================\n`);
     }
 
     console.log('🔍 Monitor: Buscando conversas ativas...');
@@ -759,15 +762,28 @@ async function processConversation(
 
     // 🆕 Verificar PRIMEIRO no metadata da análise (mais confiável)
     const analysisWindowTime = analysis.metadata?.next_ai_response_at;
+    console.log(`\n🔍 [${analysis.id}] Verificando janela ativa no metadata...`);
+    console.log(`   - next_ai_response_at: ${analysisWindowTime || 'NULL'}`);
+    console.log(`   - Timestamp atual: ${now.toISOString()}`);
+
     if (analysisWindowTime) {
       const windowDate = new Date(analysisWindowTime);
+      const timeRemainingSeconds = Math.floor((windowDate.getTime() - now.getTime()) / 1000);
+      console.log(`   - Janela expira em: ${windowDate.toISOString()}`);
+      console.log(`   - Tempo restante: ${timeRemainingSeconds}s`);
+      console.log(`   - Janela expirou? ${windowDate <= now ? 'SIM' : 'NÃO'}`);
+
       if (windowDate > now) {
         activeWindowNextResponseAt = analysisWindowTime;
-        const timeRemainingSeconds = Math.floor((windowDate.getTime() - now.getTime()) / 1000);
-        console.log(`⏰ [${analysis.id}] Janela ativa no metadata da análise: ${activeWindowNextResponseAt} (${timeRemainingSeconds}s restantes)`);
-        console.log(`🛑 [${analysis.id}] AGUARDANDO janela expirar. Mensagens serão agrupadas. Retornando sem processar.`);
+        console.log(`\n🛑🛑🛑 [${analysis.id}] JANELA ATIVA DETECTADA! 🛑🛑🛑`);
+        console.log(`   RETORNANDO SEM PROCESSAR - aguardando ${timeRemainingSeconds}s`);
+        console.log(`   Mensagens serão agrupadas quando janela expirar\n`);
         return { analysis_id: analysis.id, action: 'waiting_for_analysis_window', time_remaining_seconds: timeRemainingSeconds };
+      } else {
+        console.log(`   ✅ Janela expirada - pode processar`);
       }
+    } else {
+      console.log(`   ✅ Sem janela ativa - pode processar`);
     }
 
     // Se não encontrou na análise, buscar nas mensagens
@@ -1005,8 +1021,13 @@ async function processConversation(
       }
       
       const claimedMessages = finalGroupedMessages;
-      console.log(`✅ [${analysis.id}] Coletadas ${claimedMessages.length} mensagens após janela de ${(randomDelayMs/1000).toFixed(0)}s`);
-      
+      console.log(`\n✅✅✅ [${analysis.id}] PROCESSANDO ${claimedMessages.length} MENSAGENS AGRUPADAS`);
+      console.log(`   Mensagens coletadas após janela de ${(randomDelayMs/1000).toFixed(0)}s:`);
+      claimedMessages.forEach((msg: any, idx: number) => {
+        console.log(`   ${idx + 1}. [${msg.id}] "${msg.content.substring(0, 50)}..." (criada em: ${msg.created_at})`);
+      });
+      console.log(``);
+
       // Atualizar metadata com informações do grupo final
       for (const msg of claimedMessages) {
         await supabase
@@ -1024,6 +1045,7 @@ async function processConversation(
 
       // Agrupar conteúdo das mensagens reivindicadas
       const groupedContent = claimedMessages.map((m: any) => m.content).join('\n');
+      console.log(`📝 [${analysis.id}] Conteúdo agrupado para IA:\n"${groupedContent}"\n`);
 
       // Análise de histórico
       const conversationAnalysis = analyzeConversationHistory(messages);
@@ -1340,7 +1362,9 @@ LEMBRE-SE:
         }
       }
 
-      console.log(`🤖 [${analysis.id}] Resposta final: ${validatedResponse.substring(0, 100)}...`);
+      console.log(`\n🤖🤖🤖 [${analysis.id}] RESPOSTA GERADA PELA IA:`);
+      console.log(`"${validatedResponse}"`);
+      console.log(`Tamanho: ${validatedResponse.length} caracteres\n`);
 
       // 🔐 IDEMPOTÊNCIA: Verificar se já respondemos a este grupo exato
       const groupHash = claimedMessages.map((m: any) => m.id).sort().join(',');
@@ -1386,14 +1410,22 @@ LEMBRE-SE:
 
       // ✂️ QUEBRAR RESPOSTA EM CHUNKS (máximo 2 linhas)
       const messageChunks = splitMessageIntoChunks(validatedResponse);
-      console.log(`📨 [${analysis.id}] Quebrando resposta em ${messageChunks.length} mensagens...`);
+      console.log(`\n✂️ [${analysis.id}] QUEBRANDO RESPOSTA EM ${messageChunks.length} CHUNK(S):`);
+      messageChunks.forEach((chunk, idx) => {
+        console.log(`   Chunk ${idx + 1}: "${chunk}"`);
+      });
+      console.log(``);
 
       // Enviar cada chunk como mensagem separada com delay
       for (let i = 0; i < messageChunks.length; i++) {
         const chunk = messageChunks[i];
-        
+
+        console.log(`📤 [${analysis.id}] Enviando chunk ${i + 1}/${messageChunks.length} via WhatsApp...`);
+
         // Enviar via Evolution
         await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, chunk);
+
+        console.log(`✅ [${analysis.id}] Chunk ${i + 1}/${messageChunks.length} enviado com sucesso`);
         
         // Calcular próximo horário de resposta baseado na profundidade
         const depth = analysis.analysis_depth || 'quick';
