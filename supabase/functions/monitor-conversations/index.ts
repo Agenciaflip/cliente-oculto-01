@@ -8,6 +8,53 @@ import { getRandomCasualTopic, getRandomTransition } from "../_shared/prompts/ca
 import { DEPTH_CONFIG, calculateNextFollowUpTime } from "../_shared/config/analysis-config.ts";
 import { assignStyleToAnalysis, applyStyleModifier } from "../_shared/config/conversation-styles.ts";
 
+// ============= HELPER: SALVAR LOGS DE DEBUG NO METADATA =============
+async function saveDebugLog(
+  supabase: any,
+  analysisId: string,
+  level: 'info' | 'warning' | 'error' | 'success',
+  message: string,
+  data?: any
+) {
+  try {
+    // Buscar logs atuais
+    const { data: analysis } = await supabase
+      .from('analysis_requests')
+      .select('metadata')
+      .eq('id', analysisId)
+      .single();
+
+    const currentLogs = analysis?.metadata?.debug_logs || [];
+
+    // Adicionar novo log
+    const newLog = {
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      ...(data && { data })
+    };
+
+    // Manter apenas os últimos 100 logs (para não explodir o tamanho)
+    const updatedLogs = [...currentLogs, newLog].slice(-100);
+
+    // Salvar de volta (fire and forget - não bloqueamos)
+    supabase
+      .from('analysis_requests')
+      .update({
+        metadata: {
+          ...(analysis?.metadata || {}),
+          debug_logs: updatedLogs
+        }
+      })
+      .eq('id', analysisId)
+      .then(() => {
+        console.log(`📝 Log salvo: [${level}] ${message.substring(0, 50)}...`);
+      });
+  } catch (error) {
+    console.error('❌ Erro ao salvar debug log:', error);
+  }
+}
+
 // Função auxiliar para saudação contextual (horário de Brasília)
 function getGreetingByTime(): string {
   const nowUTC = new Date();
@@ -81,6 +128,15 @@ serve(async (req) => {
       console.log(`⏰ [${specificAnalysisId}] Processando com janela dinâmica de agrupamento (sem debounce fixo)`);
       console.log(`📅 Timestamp: ${new Date().toISOString()}`);
       console.log(`======================================\n`);
+
+      // 🐛 DEBUG: Salvar log visual
+      await saveDebugLog(
+        supabase,
+        specificAnalysisId,
+        'info',
+        '========== MONITOR INVOCADO ==========\nProcessando com janela dinâmica de agrupamento',
+        { timestamp: new Date().toISOString() }
+      );
     }
 
     console.log('🔍 Monitor: Buscando conversas ativas...');
@@ -778,6 +834,20 @@ async function processConversation(
         console.log(`\n🛑🛑🛑 [${analysis.id}] JANELA ATIVA DETECTADA! 🛑🛑🛑`);
         console.log(`   RETORNANDO SEM PROCESSAR - aguardando ${timeRemainingSeconds}s`);
         console.log(`   Mensagens serão agrupadas quando janela expirar\n`);
+
+        // 🐛 DEBUG: Salvar log visual
+        await saveDebugLog(
+          supabase,
+          analysis.id,
+          'warning',
+          `🛑 JANELA ATIVA DETECTADA!\nRETORNANDO SEM PROCESSAR - aguardando ${timeRemainingSeconds}s\nMensagens serão agrupadas quando janela expirar`,
+          {
+            windowExpires: analysisWindowTime,
+            timeRemainingSeconds,
+            now: now.toISOString()
+          }
+        );
+
         return { analysis_id: analysis.id, action: 'waiting_for_analysis_window', time_remaining_seconds: timeRemainingSeconds };
       } else {
         console.log(`   ✅ Janela expirada - pode processar`);
@@ -1027,6 +1097,22 @@ async function processConversation(
         console.log(`   ${idx + 1}. [${msg.id}] "${msg.content.substring(0, 50)}..." (criada em: ${msg.created_at})`);
       });
       console.log(``);
+
+      // 🐛 DEBUG: Salvar log visual
+      const messagesPreview = claimedMessages.map((msg: any, idx: number) =>
+        `${idx + 1}. "${msg.content.substring(0, 50)}${msg.content.length > 50 ? '...' : ''}"`
+      ).join('\n');
+      await saveDebugLog(
+        supabase,
+        analysis.id,
+        'success',
+        `✅ PROCESSANDO ${claimedMessages.length} MENSAGENS AGRUPADAS\nJanela de agrupamento: ${(randomDelayMs/1000).toFixed(0)}s\n\nMensagens:\n${messagesPreview}`,
+        {
+          messageCount: claimedMessages.length,
+          windowSeconds: (randomDelayMs/1000).toFixed(0),
+          messageIds: claimedMessages.map((m: any) => m.id)
+        }
+      );
 
       // Atualizar metadata com informações do grupo final
       for (const msg of claimedMessages) {
@@ -1366,6 +1452,15 @@ LEMBRE-SE:
       console.log(`"${validatedResponse}"`);
       console.log(`Tamanho: ${validatedResponse.length} caracteres\n`);
 
+      // 🐛 DEBUG: Salvar log visual
+      await saveDebugLog(
+        supabase,
+        analysis.id,
+        'info',
+        `🤖 RESPOSTA GERADA PELA IA:\n"${validatedResponse}"`,
+        { length: validatedResponse.length }
+      );
+
       // 🔐 IDEMPOTÊNCIA: Verificar se já respondemos a este grupo exato
       const groupHash = claimedMessages.map((m: any) => m.id).sort().join(',');
       const groupHashBuffer = await crypto.subtle.digest(
@@ -1416,6 +1511,18 @@ LEMBRE-SE:
       });
       console.log(``);
 
+      // 🐛 DEBUG: Salvar log visual
+      const chunksPreview = messageChunks.map((chunk, idx) =>
+        `Chunk ${idx + 1}: "${chunk}"`
+      ).join('\n');
+      await saveDebugLog(
+        supabase,
+        analysis.id,
+        'info',
+        `✂️ QUEBRANDO RESPOSTA EM ${messageChunks.length} CHUNK(S):\n\n${chunksPreview}`,
+        { chunkCount: messageChunks.length }
+      );
+
       // Enviar cada chunk como mensagem separada com delay
       for (let i = 0; i < messageChunks.length; i++) {
         const chunk = messageChunks[i];
@@ -1426,6 +1533,15 @@ LEMBRE-SE:
         await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, chunk);
 
         console.log(`✅ [${analysis.id}] Chunk ${i + 1}/${messageChunks.length} enviado com sucesso`);
+
+        // 🐛 DEBUG: Salvar log visual
+        await saveDebugLog(
+          supabase,
+          analysis.id,
+          'success',
+          `📤 Chunk ${i + 1}/${messageChunks.length} enviado via WhatsApp:\n"${chunk}"`,
+          { chunkIndex: i + 1, totalChunks: messageChunks.length }
+        );
         
         // Calcular próximo horário de resposta baseado na profundidade
         const depth = analysis.analysis_depth || 'quick';
