@@ -21,16 +21,25 @@ export const FollowUpTimer = ({
 
   useEffect(() => {
     if (!nextFollowUpAt) {
+      console.log('⚠️ FollowUpTimer: nextFollowUpAt is null/undefined');
       setTimeRemaining(0);
       return;
     }
 
     const updateTimer = () => {
-      // Usar horário de Brasília
-      const nowBrasilia = new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' });
-      const now = new Date(nowBrasilia);
-      const target = new Date(new Date(nextFollowUpAt).toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-      const diff = Math.max(0, Math.floor((target.getTime() - now.getTime()) / 1000));
+      // Comparar timestamps UTC diretamente (mais confiável)
+      const now = Date.now();
+      const target = new Date(nextFollowUpAt).getTime();
+      const diff = Math.max(0, Math.floor((target - now) / 1000));
+
+      console.log('⏰ FollowUpTimer:', {
+        now: new Date(now).toISOString(),
+        target: new Date(target).toISOString(),
+        nextFollowUpAt,
+        diffSeconds: diff,
+        diffMinutes: Math.floor(diff / 60)
+      });
+
       setTimeRemaining(diff);
     };
 
@@ -54,8 +63,24 @@ export const FollowUpTimer = ({
     return `${secs}s`;
   };
 
+  // Debug: Log de props recebidas
+  console.log('🔍 FollowUpTimer props:', {
+    followUpsSent,
+    maxFollowUps,
+    nextFollowUpAt,
+    lastMessageRole,
+    timeRemaining
+  });
+
   // Só mostrar se a última mensagem foi do assistente e ainda há tentativas
   if (lastMessageRole !== 'ai' || followUpsSent >= maxFollowUps) {
+    console.log('❌ FollowUpTimer: Não renderizando -', {
+      lastMessageRole,
+      isAI: lastMessageRole === 'ai',
+      followUpsSent,
+      maxFollowUps,
+      hasReachedMax: followUpsSent >= maxFollowUps
+    });
     return null;
   }
 
@@ -77,7 +102,7 @@ export const FollowUpTimer = ({
             </div>
           </div>
 
-          {nextFollowUpAt && timeRemaining > 0 && (
+          {nextFollowUpAt && timeRemaining > 0 ? (
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
               <div className="text-right">
@@ -87,6 +112,13 @@ export const FollowUpTimer = ({
                 </p>
               </div>
             </div>
+          ) : (
+            console.log('⏰ FollowUpTimer: Countdown não exibido -', {
+              hasNextFollowUpAt: !!nextFollowUpAt,
+              timeRemaining,
+              shouldShow: !!(nextFollowUpAt && timeRemaining > 0)
+            }),
+            null
           )}
         </div>
 
