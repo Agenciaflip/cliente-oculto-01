@@ -13,6 +13,7 @@ import { AnalysisTimer } from "@/components/AnalysisTimer";
 import { NextResponseTimer } from "@/components/NextResponseTimer";
 import { ConversationPlan } from "@/components/ConversationPlan";
 import { Confetti } from "@/components/Confetti";
+import { DebugLogs } from "@/components/DebugLogs";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -1292,6 +1293,9 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           </Card>
         )}
       </main>
+
+      {/* Debug Logs - Pressione Ctrl+Shift+D ou clique no botão no canto inferior direito */}
+      <DebugLogs analysisId={id!} />
     </div>
   );
 };
