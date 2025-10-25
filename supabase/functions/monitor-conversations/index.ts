@@ -756,6 +756,21 @@ async function processConversation(
 
     // ============= PASSO 1: IDENTIFICAR JANELA ATIVA E FORÇAR REPROCESSAMENTO SE ATRASADA =============
     let activeWindowNextResponseAt: string | null = null;
+
+    // 🆕 Verificar PRIMEIRO no metadata da análise (mais confiável)
+    const analysisWindowTime = analysis.metadata?.next_ai_response_at;
+    if (analysisWindowTime) {
+      const windowDate = new Date(analysisWindowTime);
+      if (windowDate > now) {
+        activeWindowNextResponseAt = analysisWindowTime;
+        const timeRemainingSeconds = Math.floor((windowDate.getTime() - now.getTime()) / 1000);
+        console.log(`⏰ [${analysis.id}] Janela ativa no metadata da análise: ${activeWindowNextResponseAt} (${timeRemainingSeconds}s restantes)`);
+        console.log(`🛑 [${analysis.id}] AGUARDANDO janela expirar. Mensagens serão agrupadas. Retornando sem processar.`);
+        return { analysis_id: analysis.id, action: 'waiting_for_analysis_window', time_remaining_seconds: timeRemainingSeconds };
+      }
+    }
+
+    // Se não encontrou na análise, buscar nas mensagens
     const { data: activeWindowMsgs } = await supabase
       .from('conversation_messages')
       .select('id, metadata, created_at')
@@ -774,8 +789,9 @@ async function processConversation(
       if (existingDate > now) {
         // Janela ainda não expirou
         activeWindowNextResponseAt = existingNextResponse;
-        console.log(`⏰ [${analysis.id}] Janela ativa detectada: ${activeWindowNextResponseAt}`);
-        
+        const timeRemainingSeconds = Math.floor((existingDate.getTime() - now.getTime()) / 1000);
+        console.log(`⏰ [${analysis.id}] Janela ativa detectada: ${activeWindowNextResponseAt} (ainda ${timeRemainingSeconds}s restantes)`);
+
         // Salvar na análise para o frontend (merge com metadata existente)
         const currentMeta = analysis.metadata || {};
         await supabase.from('analysis_requests').update({
@@ -786,6 +802,10 @@ async function processConversation(
             next_ai_response_detected_at: new Date().toISOString()
           }
         }).eq('id', analysis.id);
+
+        // 🛑 CRITICAL: RETORNAR IMEDIATAMENTE - não processar enquanto janela ativa
+        console.log(`🛑 [${analysis.id}] AGUARDANDO janela expirar. Mensagens serão agrupadas. Retornando sem processar.`);
+        return { analysis_id: analysis.id, action: 'waiting_for_active_window', time_remaining_seconds: timeRemainingSeconds };
       } else if (delay > 120000) {
         // Janela expirou há mais de 2 minutos - FORÇAR REPROCESSAMENTO
         console.warn(`⚠️ [${analysis.id}] ATRASO DETECTADO: next_ai_response_at venceu há ${(delay/1000).toFixed(0)}s para mensagem ${msg.id}`);
