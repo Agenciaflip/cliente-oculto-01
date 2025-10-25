@@ -6,6 +6,7 @@ import { getPersonaPrompt } from "../_shared/prompts/personas.ts";
 import { getRandomCasualTopic, getRandomTransition } from "../_shared/prompts/casual-topics.ts";
 import { analyzeObjectivesProgress } from "../_shared/utils/objective-analyzer.ts";
 import { DEPTH_CONFIG, calculateNextFollowUpTime } from "../_shared/config/analysis-config.ts";
+import { assignStyleToAnalysis, applyStyleModifier } from "../_shared/config/conversation-styles.ts";
 
 // Função auxiliar para saudação contextual (horário de Brasília)
 function getGreetingByTime(): string {
@@ -1056,6 +1057,28 @@ async function processConversation(
         newStage = 'objective_focus';
       }
 
+      // 🎯 A/B TESTING: Atribuir estilo de conversa se não tiver
+      const metadata = analysis.metadata || {};
+      let conversationStyle = metadata.conversation_style;
+
+      if (!conversationStyle) {
+        conversationStyle = assignStyleToAnalysis();
+        console.log(`🎨 [${analysis.id}] Estilo A/B atribuído: ${conversationStyle.style_name} (${conversationStyle.style_id})`);
+
+        // Salvar estilo no metadata para análise posterior
+        await supabase
+          .from('analysis_requests')
+          .update({
+            metadata: {
+              ...metadata,
+              conversation_style: conversationStyle
+            }
+          })
+          .eq('id', analysis.id);
+      } else {
+        console.log(`🎨 [${analysis.id}] Usando estilo existente: ${conversationStyle.style_name}`);
+      }
+
       // Construir systemPrompt
       const basePersonaPrompt = getPersonaPrompt(analysis.ai_gender || 'male');
       const currentTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
@@ -1127,11 +1150,16 @@ ${conversationAnalysis.recentUserQuestions.length > 0 ? `- Últimas perguntas do
    - Seja direto mas natural ao perguntar sobre o objetivo
    - Intercale com comentários casuais, mas SEMPRE retorne ao objetivo
 
-🎭 NATURALIDADE BRASILEIRA:
-   - Use linguagem coloquial: "vcs", "pra", "tá", "né", "uns", "umas"
-   - Mensagens curtas (máximo 2-3 linhas)
-   - Tom casual mas educado
-   - ZERO emojis
+🎭 NATURALIDADE BRASILEIRA ULTRA-REALISTA:
+   - Use linguagem coloquial: "vcs", "pra", "tá", "né", "uns", "umas", "to", "tbm"
+   - Contrações naturais: "vo" (vou), "tb" (também), "blz" (beleza)
+   - Gírias leves quando apropriado: "massa", "show", "top", "legal"
+   - Mensagens CURTAS (máximo 1-2 linhas por mensagem)
+   - Escreva como você digitaria no WhatsApp pessoal
+   - Tom casual mas educado e respeitoso
+   - ZERO emojis SEMPRE
+   - Não use pontuação excessiva (vírgulas ok, mas evite ponto e vírgula)
+   - Imite padrões de digitação mobile: rápido, direto, sem formalidades
 
 🤝 RESPONDER PRIMEIRO, PERGUNTAR DEPOIS:
    - SE a última mensagem do vendedor tiver uma PERGUNTA (contém "?"), você DEVE responder objetivamente ANTES
@@ -1184,12 +1212,32 @@ TAREFA: ${nextQuestion?.expected_info || 'Continue a conversa de forma natural'}
 - Deixe o vendedor responder antes de fazer a próxima pergunta
 `}
 
+✅ EXEMPLOS DE RESPOSTAS NATURAIS:
+
+Vendedor: "Quanto você quer?"
+❌ ERRADO: "Olá! Gostaria de solicitar aproximadamente 6 unidades, por gentileza."
+✅ CORRETO: "uns 6 mesmo, quanto fica?"
+
+Vendedor: "Entregamos sim, onde você mora?"
+❌ ERRADO: "Resido no bairro Centro, região central da cidade."
+✅ CORRETO: "aqui no centro, vcs fazem entrega aí?"
+
+Vendedor: "Temos várias opções de pagamento!"
+❌ ERRADO: "Perfeito! E qual seria o prazo de entrega estimado?"
+✅ CORRETO: "show, e demora quanto pra chegar?"
+
 LEMBRE-SE:
 - ZERO emojis
-- Linguagem coloquial brasileira (vcs, pra, tá, né)
-- Mensagens curtas (1-2 linhas no máximo)
+- Linguagem coloquial brasileira (vcs, pra, tá, né, to, tb)
+- Mensagens ULTRA CURTAS (1 linha ideal, máximo 2)
 - Apenas 1 pergunta por vez
-- Tom casual mas educado`;
+- Tom casual mas educado
+- Pense: "como eu perguntaria isso pro meu amigo no WhatsApp?"`;
+
+      // 🎨 Aplicar modificador de estilo A/B
+      const finalSystemPrompt = applyStyleModifier(systemPrompt, conversationStyle.style_id);
+
+      console.log(`🎨 [${analysis.id}] Aplicando estilo: ${conversationStyle.style_name}`);
 
       // Chamar OpenAI GPT-4o
       const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -1201,7 +1249,7 @@ LEMBRE-SE:
         body: JSON.stringify({
           model: 'gpt-4o',
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: finalSystemPrompt },
             { role: 'user', content: userPrompt }
           ],
           temperature: 0.9,
@@ -1461,13 +1509,18 @@ LEMBRE-SE:
                   .eq('id', msg.id);
               }
               
-              // Mensagens de despedida naturais
+              // Mensagens de despedida naturais e variadas
               const farewellMessages = [
                 'beleza, muito obrigado pela atenção! até mais',
-                'perfeito, valeu mesmo! até logo',
-                'legal, agradeço demais! até mais'
+                'perfeito, valeu mesmo pela ajuda! até logo',
+                'legal, agradeço demais pelas informações! até mais',
+                'show, já me ajudou bastante! valeu',
+                'ótimo, era isso que eu precisava! obrigado',
+                'massa, já consegui o que queria! muito obrigado',
+                'certo, já consegui o que precisava! até mais',
+                'entendi tudo, muito obrigado pela paciência! até logo'
               ];
-              
+
               const farewellMsg = farewellMessages[Math.floor(Math.random() * farewellMessages.length)];
               await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, farewellMsg);
               
@@ -1498,10 +1551,23 @@ LEMBRE-SE:
                 })
                 .eq('id', analysis.id);
               
-              // ✅ CORREÇÃO 2: Disparar análise de vendas automaticamente
+              // ✅ CORREÇÃO: Disparar análises automaticamente (métricas + vendas)
               try {
-                console.log(`🔍 [${analysis.id}] Iniciando análise de vendas...`);
-                
+                console.log(`🔍 [${analysis.id}] Gerando métricas e análise de vendas...`);
+
+                // 1. Gerar métricas primeiro
+                const { error: metricsError } = await supabase.functions.invoke(
+                  'generate-metrics',
+                  { body: { analysis_id: analysis.id } }
+                );
+
+                if (metricsError) {
+                  console.error(`❌ [${analysis.id}] Erro ao gerar métricas:`, metricsError);
+                } else {
+                  console.log(`✅ [${analysis.id}] Métricas geradas`);
+                }
+
+                // 2. Gerar análise de vendas
                 const { error: salesAnalysisError } = await supabase.functions.invoke(
                   'analyze-sales-conversation',
                   { body: { analysis_id: analysis.id } }
@@ -1510,10 +1576,10 @@ LEMBRE-SE:
                 if (salesAnalysisError) {
                   console.error(`❌ [${analysis.id}] Erro ao gerar análise de vendas:`, salesAnalysisError);
                 } else {
-                  console.log(`✅ [${analysis.id}] Análise de vendas gerada automaticamente`);
+                  console.log(`✅ [${analysis.id}] Análise de vendas gerada`);
                 }
               } catch (error) {
-                console.error(`❌ [${analysis.id}] Falha ao invocar análise de vendas:`, error);
+                console.error(`❌ [${analysis.id}] Falha ao invocar análises:`, error);
               }
               
               console.log(`✅ [${analysis.id}] Análise encerrada - objetivos alcançados!`);
@@ -1573,20 +1639,34 @@ LEMBRE-SE:
       return { analysis_id: analysis.id, action: 'responded', grouped: claimedMessages.length };
     }
 
-    // CENÁRIO B: Sistema de Follow-up (FIXO: 3 tentativas com delays de 20min, 40min, 1h)
+    // CENÁRIO B: Sistema de Follow-up (3 tentativas com delays baseados na profundidade)
     if (lastMessage.role === 'ai') {
       const metadata = analysis.metadata || {};
       const followUpsSent = metadata.follow_ups_sent || 0;
-      const maxFollowUps = 3; // Sempre 3 tentativas
-      const FOLLOW_UP_DELAYS = [20, 40, 60]; // minutos
+
+      // Usar configuração baseada na profundidade da análise
+      const depth = analysis.analysis_depth || 'quick';
+      const depthConfig = DEPTH_CONFIG[depth as keyof typeof DEPTH_CONFIG] || DEPTH_CONFIG.quick;
+      const maxFollowUps = depthConfig.maxFollowUps; // 3 tentativas
+      const FOLLOW_UP_DELAYS = depthConfig.followUpDelays; // Delays dinâmicos por profundidade
+
       const nextFollowUpAt = metadata.next_follow_up_at;
 
       // Se ainda há tentativas e chegou o horário
       if (followUpsSent < maxFollowUps) {
         // Se não tem próximo follow-up agendado, agendar o primeiro
         if (!nextFollowUpAt) {
-          const delayMinutes = FOLLOW_UP_DELAYS[followUpsSent];
-          const nextTime = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
+          const baseDelayMinutes = FOLLOW_UP_DELAYS[followUpsSent];
+
+          // ✨ VARIAÇÃO: Adicionar ±20% de randomização para evitar padrões
+          // Ex: 30min vira 24-36min, 60min vira 48-72min
+          const variation = baseDelayMinutes * 0.2; // 20% de variação
+          const randomOffset = (Math.random() * 2 - 1) * variation; // -20% a +20%
+          const finalDelayMinutes = Math.round(baseDelayMinutes + randomOffset);
+
+          const nextTime = new Date(Date.now() + finalDelayMinutes * 60 * 1000).toISOString();
+
+          console.log(`⏰ [${analysis.id}] Follow-up com variação: ${baseDelayMinutes}min → ${finalDelayMinutes}min`);
           
           await supabase
             .from('analysis_requests')
@@ -1600,20 +1680,39 @@ LEMBRE-SE:
             })
             .eq('id', analysis.id);
 
-          console.log(`⏰ [${analysis.id}] Follow-up ${followUpsSent + 1}/${maxFollowUps} agendado para: ${nextTime} (+${delayMinutes}min)`);
+          console.log(`⏰ [${analysis.id}] Follow-up ${followUpsSent + 1}/${maxFollowUps} agendado para: ${nextTime} (+${finalDelayMinutes}min)`);
         }
         // Se chegou o horário do follow-up
         else if (new Date() >= new Date(nextFollowUpAt)) {
           console.log(`🔔 [${analysis.id}] Enviando follow-up ${followUpsSent + 1}/${maxFollowUps}`);
 
-          const followUpVariations = [
-            'oi, conseguiu dar uma olhada?',
-            'opa, tudo bem? consegue me ajudar?',
-            'e aí, viu minha mensagem?',
-            'oi de novo, ainda pode me passar essa info?'
+          // Mensagens progressivas baseadas no número do follow-up
+          const followUpMessagesByAttempt = [
+            // Primeiro follow-up (mais casual)
+            [
+              'oi, conseguiu dar uma olhada?',
+              'e aí, viu minha mensagem?',
+              'consegue me ajudar com aquela info?',
+              'opa, conseguiu ver?'
+            ],
+            // Segundo follow-up (um pouco mais insistente)
+            [
+              'oi de novo, ainda pode me passar essa info?',
+              'olá, conseguiu verificar?',
+              'opa, tudo bem? consegue me ajudar?',
+              'ainda tem como me ajudar?'
+            ],
+            // Terceiro follow-up (último, mais direto)
+            [
+              'última tentativa aqui, consegue me responder?',
+              'oi, desculpa insistir mas preciso dessa info',
+              'consegue me dar um retorno?',
+              'ainda pode me ajudar ou não tem como?'
+            ]
           ];
 
-          const followUpMessage = followUpVariations[Math.floor(Math.random() * followUpVariations.length)];
+          const variationsForThisAttempt = followUpMessagesByAttempt[followUpsSent] || followUpMessagesByAttempt[0];
+          const followUpMessage = variationsForThisAttempt[Math.floor(Math.random() * variationsForThisAttempt.length)];
 
           await sendText(actualEvolutionUrl, actualEvolutionKey, actualEvolutionInstance, analysis.target_phone, followUpMessage);
 
@@ -1637,12 +1736,20 @@ LEMBRE-SE:
           });
 
           const newFollowUpsSent = followUpsSent + 1;
-          
+
           // Calcular próximo follow-up se ainda não atingiu 3
           let nextTime = null;
           if (newFollowUpsSent < maxFollowUps) {
-            const delayMinutes = FOLLOW_UP_DELAYS[newFollowUpsSent];
-            nextTime = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
+            const baseDelayMinutes = FOLLOW_UP_DELAYS[newFollowUpsSent];
+
+            // ✨ VARIAÇÃO: Adicionar ±20% de randomização
+            const variation = baseDelayMinutes * 0.2;
+            const randomOffset = (Math.random() * 2 - 1) * variation;
+            const finalDelayMinutes = Math.round(baseDelayMinutes + randomOffset);
+
+            nextTime = new Date(Date.now() + finalDelayMinutes * 60 * 1000).toISOString();
+
+            console.log(`⏰ Próximo follow-up com variação: ${baseDelayMinutes}min → ${finalDelayMinutes}min`);
           }
           
           // Se foi o último follow-up, marcar como completed
@@ -1664,23 +1771,24 @@ LEMBRE-SE:
             })
             .eq('id', analysis.id);
 
-          // ✅ CORREÇÃO 2: Análise automática ao completar follow-ups
+          // ✅ CORREÇÃO: Análise automática ao completar follow-ups
           if (newStatus === 'completed') {
             try {
-              console.log(`🔍 [${analysis.id}] Iniciando análise de vendas (follow-ups completos)...`);
-              
-              const { error: salesAnalysisError } = await supabase.functions.invoke(
-                'analyze-sales-conversation',
-                { body: { analysis_id: analysis.id } }
-              );
+              console.log(`🔍 [${analysis.id}] Gerando métricas e análise (follow-ups completos)...`);
 
-              if (salesAnalysisError) {
-                console.error(`❌ [${analysis.id}] Erro ao gerar análise de vendas:`, salesAnalysisError);
-              } else {
-                console.log(`✅ [${analysis.id}] Análise de vendas gerada automaticamente`);
-              }
+              // Gerar métricas primeiro
+              await supabase.functions.invoke('generate-metrics', {
+                body: { analysis_id: analysis.id }
+              });
+
+              // Depois análise de vendas
+              await supabase.functions.invoke('analyze-sales-conversation', {
+                body: { analysis_id: analysis.id }
+              });
+
+              console.log(`✅ [${analysis.id}] Análises geradas automaticamente`);
             } catch (error) {
-              console.error(`❌ [${analysis.id}] Falha ao invocar análise de vendas:`, error);
+              console.error(`❌ [${analysis.id}] Erro ao gerar análises:`, error);
             }
           }
 
@@ -1768,22 +1876,21 @@ LEMBRE-SE:
         })
         .eq('id', analysis.id);
 
-      // ✅ CORREÇÃO 2: Análise automática após última reativação
+      // ✅ CORREÇÃO: Análise automática após última reativação
       try {
-        console.log(`🔍 [${analysis.id}] Iniciando análise de vendas (reativações completas)...`);
-        
-        const { error: salesAnalysisError } = await supabase.functions.invoke(
-          'analyze-sales-conversation',
-          { body: { analysis_id: analysis.id } }
-        );
+        console.log(`🔍 [${analysis.id}] Gerando análises (reativações completas)...`);
 
-        if (salesAnalysisError) {
-          console.error(`❌ [${analysis.id}] Erro ao gerar análise de vendas:`, salesAnalysisError);
-        } else {
-          console.log(`✅ [${analysis.id}] Análise de vendas gerada automaticamente`);
-        }
+        await supabase.functions.invoke('generate-metrics', {
+          body: { analysis_id: analysis.id }
+        });
+
+        await supabase.functions.invoke('analyze-sales-conversation', {
+          body: { analysis_id: analysis.id }
+        });
+
+        console.log(`✅ [${analysis.id}] Análises geradas automaticamente`);
       } catch (error) {
-        console.error(`❌ [${analysis.id}] Falha ao invocar análise de vendas:`, error);
+        console.error(`❌ [${analysis.id}] Erro ao gerar análises:`, error);
       }
 
       console.log(`✅ [${analysis.id}] Segunda reativação enviada (24h) - conversa encerrada`);
@@ -1827,14 +1934,21 @@ LEMBRE-SE:
           })
           .eq('id', analysis.id);
         
-        // Gerar análise de vendas automaticamente
+        // Gerar análises automaticamente
         try {
-          console.log(`🔍 [${analysis.id}] Iniciando análise de vendas (timeout 2h)...`);
+          console.log(`🔍 [${analysis.id}] Gerando análises (timeout 2h)...`);
+
+          await supabase.functions.invoke('generate-metrics', {
+            body: { analysis_id: analysis.id }
+          });
+
           await supabase.functions.invoke('analyze-sales-conversation', {
             body: { analysis_id: analysis.id }
           });
+
+          console.log(`✅ [${analysis.id}] Análises geradas automaticamente`);
         } catch (error) {
-          console.error(`❌ [${analysis.id}] Erro ao gerar análise de vendas:`, error);
+          console.error(`❌ [${analysis.id}] Erro ao gerar análises:`, error);
         }
         
         console.log(`✅ [${analysis.id}] Análise completada após 2h`);
@@ -1870,8 +1984,39 @@ LEMBRE-SE:
   }
 }
 
-// Helper para enviar texto
+// Helper para enviar texto COM TYPING INDICATOR
 async function sendText(url: string, key: string, instance: string, phone: string, text: string) {
+  // ⌨️ TYPING SIMULATION: Calcular tempo de digitação baseado no tamanho do texto
+  // Humano digita ~40-60 caracteres por minuto (0.66-1 char/seg)
+  // Para parecer natural: 1 segundo a cada 15-25 caracteres
+  const charsPerSecond = 15 + Math.random() * 10; // 15-25 chars/seg (variação)
+  const typingTimeMs = Math.max(1000, (text.length / charsPerSecond) * 1000); // Mínimo 1s
+  const cappedTypingTime = Math.min(typingTimeMs, 8000); // Máximo 8s
+
+  console.log(`⌨️ Simulando digitação: ${text.length} chars → ${(cappedTypingTime/1000).toFixed(1)}s`);
+
+  // Tentar enviar presence "composing" (se Evolution API suportar)
+  try {
+    await fetch(`${url}/chat/updatePresence/${instance}`, {
+      method: 'POST',
+      headers: {
+        'apikey': key,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        number: phone,
+        presence: 'composing'
+      }),
+    });
+  } catch (err) {
+    // Ignorar se não suportar
+    console.log('⚠️ Presence update não suportado, continuando...');
+  }
+
+  // Aguardar tempo de "digitação"
+  await new Promise(resolve => setTimeout(resolve, cappedTypingTime));
+
+  // Enviar mensagem
   const response = await fetch(`${url}/message/sendText/${instance}`, {
     method: 'POST',
     headers: {
