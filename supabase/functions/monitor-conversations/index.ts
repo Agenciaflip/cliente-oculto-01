@@ -1406,20 +1406,28 @@ LEMBRE-SE:
         
         // Se é o último chunk, atualizar análise com próximo horário E logar
         if (i === messageChunks.length - 1) {
+          // 🆕 Calcular próximo follow-up para quando IA enviar mensagem
+          const currentMetadata = analysis.metadata || {};
+          const currentFollowUpsSent = currentMetadata.follow_ups_sent || 0;
+          const nextFollowUpTime = calculateNextFollowUpTime(analysis, currentFollowUpsSent);
+
           const mergedMeta = {
             ...(analysis.metadata || {}),
             next_ai_response_at: nextAiResponseAt,
             next_ai_response_source: 'ai_planned',
+            next_follow_up_at: nextFollowUpTime, // 🆕 Definir próximo follow-up
+            follow_ups_sent: currentFollowUpsSent, // 🆕 Manter contador atual
+            max_follow_ups: (DEPTH_CONFIG[analysis.analysis_depth as keyof typeof DEPTH_CONFIG] || DEPTH_CONFIG.quick).maxFollowUps, // 🆕 Definir max
             ai_last_group_hash: groupHashHex,
             ai_last_chunked_total: messageChunks.length,
             ai_last_chunk_sent_at: new Date().toISOString()
           };
-          
+
           await supabase.from('analysis_requests').update({
             metadata: mergedMeta
           }).eq('id', analysis.id);
-          
-          console.log(`⏰ [${analysis.id}] Novo timer definido: próxima resposta em ${(nextResponseDelayMs/1000).toFixed(0)}s (${nextAiResponseAt})`);
+
+          console.log(`⏰ [${analysis.id}] Timers definidos - Próxima resposta: ${(nextResponseDelayMs/1000).toFixed(0)}s | Próximo follow-up: ${nextFollowUpTime || 'N/A'}`);
         }
         
         // Delay entre chunks (1-3s) exceto no último

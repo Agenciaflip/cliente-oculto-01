@@ -12,7 +12,6 @@ import { SalesAnalysis } from "@/components/SalesAnalysis";
 import { AnalysisTimer } from "@/components/AnalysisTimer";
 import { NextResponseTimer } from "@/components/NextResponseTimer";
 import { FollowUpTimer } from "@/components/FollowUpTimer";
-import { ObjectiveProgressBar } from "@/components/ObjectiveProgressBar";
 import { ConversationPlan } from "@/components/ConversationPlan";
 import { Confetti } from "@/components/Confetti";
 import { format } from "date-fns";
@@ -730,17 +729,9 @@ const AnalysisDetails = ({ isAdminView = false }: AnalysisDetailsProps) => {
           </div>
         )}
 
-        {/* Barra de Progresso dos Objetivos */}
-        {(analysis.status === 'chatting' || analysis.status === 'pending_follow_up') && (
-          <div className="mb-6">
-            <ObjectiveProgressBar
-              totalObjectives={progress?.total_objectives || 0}
-              achievedObjectives={progress?.achieved_objectives || 0}
-              percentage={progress?.percentage || 0}
-              objectivesStatus={progress?.objectives_status || {}}
-            />
-            <Confetti trigger={showConfetti} onComplete={() => setShowConfetti(false)} />
-          </div>
+        {/* Confetti apenas quando completar */}
+        {showConfetti && (
+          <Confetti trigger={showConfetti} onComplete={() => setShowConfetti(false)} />
         )}
 
         {/* Timer de Follow-up */}
